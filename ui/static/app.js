@@ -21,6 +21,8 @@ document.addEventListener('DOMContentLoaded', function() {
     startStatusUpdate();
     // 移除refreshFiles调用，由app_simple.js处理
     refreshLogs();
+    // 异步更新统计信息
+    updateStatistics();
 });
 
 // 加载配置
@@ -137,6 +139,9 @@ function updateLinksDisplay(links) {
             // 先添加一个占位行
             const row = document.createElement('tr');
             row.innerHTML = `
+                <td>
+                    <input type="checkbox" class="form-check-input link-checkbox" value="${index}" checked>
+                </td>
                 <td>${index + 1}</td>
                 <td>
                     <input type="text" class="form-control form-control-sm" value="${link}" 
@@ -147,6 +152,9 @@ function updateLinksDisplay(links) {
                 </td>
                 <td>
                     <span class="badge bg-secondary">未知</span>
+                </td>
+                <td>
+                    <span class="text-muted">-</span>
                 </td>
                 <td>
                     <button class="btn btn-outline-danger btn-sm" onclick="removeLink(${index})">
@@ -162,6 +170,7 @@ function updateLinksDisplay(links) {
     });
     
     document.getElementById('totalLinks').textContent = links.length;
+    updateSelectAllCheckbox();
 }
 
 // 解析链接信息
@@ -182,8 +191,9 @@ async function parseLinkInfo(link, index) {
             const tbody = document.getElementById('linksTableBody');
             const row = tbody.children[index];
             if (row) {
-                const nameCell = row.children[2];
-                const typeCell = row.children[3];
+                const nameCell = row.children[3];
+                const typeCell = row.children[4];
+                const countCell = row.children[5];
                 
                 nameCell.innerHTML = `<span class="fw-bold">${result.nickname}</span>`;
                 
@@ -203,24 +213,41 @@ async function parseLinkInfo(link, index) {
                 }
                 typeCell.innerHTML = typeBadge;
                 
+                // 显示作品数量
+                let countText = '-';
+                if (result.work_count !== undefined) {
+                    countText = result.work_count.toString();
+                } else if (result.link_type === 'user') {
+                    countText = '<span class="text-muted">获取中...</span>';
+                }
+                countCell.innerHTML = `<span class="fw-bold text-primary">${countText}</span>`;
+                
                 // 保存链接信息
                 linksData[index] = {
                     link: link,
                     nickname: result.nickname,
                     link_type: result.link_type,
-                    id: result.sec_uid || result.aweme_id || result.mix_id
+                    id: result.sec_uid || result.aweme_id || result.mix_id,
+                    work_count: result.work_count
                 };
+                
+                // 如果是用户主页，异步获取作品数量
+                if (result.link_type === 'user' && result.sec_uid) {
+                    fetchUserWorkCount(result.sec_uid, index);
+                }
             }
         } else {
             // 显示错误信息
             const tbody = document.getElementById('linksTableBody');
             const row = tbody.children[index];
             if (row) {
-                const nameCell = row.children[2];
-                const typeCell = row.children[3];
+                const nameCell = row.children[3];
+                const typeCell = row.children[4];
+                const countCell = row.children[5];
                 
                 nameCell.innerHTML = `<span class="text-danger">${result.message}</span>`;
                 typeCell.innerHTML = '<span class="badge bg-danger">解析失败</span>';
+                countCell.innerHTML = '<span class="text-danger">-</span>';
             }
         }
     } catch (error) {
@@ -228,11 +255,13 @@ async function parseLinkInfo(link, index) {
         const tbody = document.getElementById('linksTableBody');
         const row = tbody.children[index];
         if (row) {
-            const nameCell = row.children[2];
-            const typeCell = row.children[3];
+            const nameCell = row.children[3];
+            const typeCell = row.children[4];
+            const countCell = row.children[5];
             
             nameCell.innerHTML = '<span class="text-danger">网络错误</span>';
             typeCell.innerHTML = '<span class="badge bg-danger">解析失败</span>';
+            countCell.innerHTML = '<span class="text-danger">-</span>';
         }
     }
 }
@@ -261,6 +290,9 @@ async function parseAndAddLink() {
     // 更新显示
     updateLinksDisplay(existingLinks);
     
+    // 保存配置到服务器
+    saveConfigToServer();
+    
     // 清空输入框
     linkInput.value = '';
     
@@ -280,6 +312,10 @@ function clearAllLinks() {
         currentConfig.link = [];
         linksData = [];
         updateLinksDisplay([]);
+        
+        // 保存配置到服务器
+        saveConfigToServer();
+        
         showToast('已清空所有链接', 'success');
     }
 }
@@ -293,35 +329,91 @@ function updateLink(index, value) {
     if (value.trim()) {
         parseLinkInfo(value, index);
     }
+    
+    // 保存配置到服务器
+    saveConfigToServer();
 }
 
 // 删除链接
 function removeLink(index) {
     if (!currentConfig.link) return;
+    
+    console.log(`🗑️ 删除链接 ${index}: ${currentConfig.link[index]}`);
+    
     currentConfig.link.splice(index, 1);
     linksData.splice(index, 1);
     updateLinksDisplay(currentConfig.link);
+    
+    // 保存配置到服务器
+    saveConfigToServer();
+    
     showToast('链接已删除', 'success');
 }
 
 // 开始下载
 async function startDownload() {
     try {
+        // 获取选中的链接
+        const selectedLinks = getSelectedLinks();
+        
+        if (selectedLinks.length === 0) {
+            showToast('请至少选择一个链接进行下载', 'warning');
+            return;
+        }
+        
+        // 计算选中链接的总作品数量
+        let totalWorks = 0;
+        const selectedLinkData = [];
+        
+        for (let i = 0; i < selectedLinks.length; i++) {
+            const link = selectedLinks[i];
+            const linkIndex = currentConfig.link.indexOf(link);
+            const linkData = linksData[linkIndex];
+            
+            if (linkData && linkData.work_count) {
+                totalWorks += parseInt(linkData.work_count) || 0;
+                selectedLinkData.push({
+                    link: link,
+                    work_count: parseInt(linkData.work_count) || 0,
+                    nickname: linkData.nickname || '未知用户'
+                });
+            } else {
+                // 如果没有作品数量信息，假设每个用户有10个作品作为默认值
+                totalWorks += 10;
+                selectedLinkData.push({
+                    link: link,
+                    work_count: 10,
+                    nickname: linkData?.nickname || '未知用户'
+                });
+            }
+        }
+        
+        console.log(`📊 选中链接总作品数量: ${totalWorks}`);
+        console.log(`📋 选中链接详情:`, selectedLinkData);
+        
         // 收集当前配置
         const config = collectCurrentConfig();
+        
+        // 创建一个下载专用的配置副本，不影响原始配置
+        const downloadConfig = { ...config };
+        downloadConfig.link = selectedLinks;
+        downloadConfig.total_works = totalWorks;
+        downloadConfig.selected_link_data = selectedLinkData;
+        
+        console.log(`📥 准备下载 ${selectedLinks.length} 个选中的链接，预计总作品数: ${totalWorks}`);
         
         const response = await fetch('/api/download/start', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ config })
+            body: JSON.stringify({ config: downloadConfig })
         });
         
         const result = await response.json();
         
         if (result.success) {
-            showToast('下载任务已启动', 'success');
+            showToast(`下载任务已启动，将下载 ${selectedLinks.length} 个链接，预计 ${totalWorks} 个作品`, 'success');
             updateDownloadControls(true);
         } else {
             showToast(result.message || '启动下载失败', 'error');
@@ -360,9 +452,12 @@ function collectCurrentConfig() {
     console.log("🔍 开始收集配置...");
     console.log("📄 当前配置文件:", config);
     
-    // 收集链接（从表格中获取）
-    const linkInputs = document.querySelectorAll('#linksTableBody input');
+    // 收集链接（从表格中获取，只获取链接输入框）
+    // 使用更精确的选择器，只选择表格中第3列（链接列）的输入框
+    const linkInputs = document.querySelectorAll('#linksTableBody tr td:nth-child(3) input[type="text"]');
     config.link = Array.from(linkInputs).map(input => input.value).filter(link => link.trim());
+    
+    console.log("🔗 收集到的链接:", config.link);
     
     // 收集下载选项
     config.music = document.getElementById('musicSwitch').checked;
@@ -516,26 +611,50 @@ async function updateDownloadStatus() {
                     recentDownloads: [],
                     currentFile: null
                 };
+                
+                // 下载完成后自动刷新文件列表和统计信息
+                if (downloadStatus.running) {  // 之前是运行状态，现在停止了
+                    console.log("🔄 下载完成，自动刷新文件列表和统计信息...");
+                    
+                    // 立即刷新统计信息
+                    updateStatistics();
+                    
+                    // 延迟一下再刷新文件列表，确保文件系统更新完成
+                    setTimeout(async () => {
+                        // 刷新文件列表（使用app_simple.js中的函数）
+                        if (typeof fileRefreshFiles === 'function') {
+                            fileRefreshFiles();
+                        }
+                        
+                        // 再次刷新统计信息，确保文件数量正确
+                        await updateStatistics();
+                        
+                        // 显示完成提示
+                        showToast('下载完成，文件列表已更新', 'success');
+                    }, 1000);  // 减少延迟到1秒
+                }
             }
         }
         
         downloadStatus = status;
         
-        // 更新进度条 - 基于文件数量或链接进度
+        // 更新进度条 - 基于文件数量和总作品数量
         let progressPercent = 0;
         const downloaded_files = status.downloaded_files || 0;
+        const total_works = status.total_works || 0;
         const total_links = status.total_links || 0;
         const completed_links = status.completed_links || 0;
         
-        if (downloaded_files > 0) {
-            // 如果有文件数量，显示文件进度
-            // 假设每个链接平均下载10个文件作为进度参考
-            const estimated_files_per_link = 10;
-            const estimated_total_files = total_links * estimated_files_per_link;
-            progressPercent = Math.min(100, Math.round((downloaded_files / estimated_total_files) * 100));
+        if (total_works > 0 && downloaded_files > 0) {
+            // 如果有总作品数量，基于文件数量计算进度
+            progressPercent = Math.min(100, Math.round((downloaded_files / total_works) * 1000) / 10);
+        } else if (downloaded_files > 0) {
+            // 如果没有总作品数量但有文件数量，假设每个链接平均10个作品
+            const estimated_total_files = total_links * 10;
+            progressPercent = Math.min(100, Math.round((downloaded_files / estimated_total_files) * 1000) / 10);
         } else if (total_links > 0) {
-            // 如果没有文件，使用链接进度
-            progressPercent = Math.round((completed_links / total_links) * 100);
+            // 如果没有文件数量，使用链接进度
+            progressPercent = Math.round((completed_links / total_links) * 1000) / 10;
         }
         
         // 如果下载完成，进度条显示100%
@@ -550,11 +669,14 @@ async function updateDownloadStatus() {
         
         if (progressBar && progressText && currentTask) {
             progressBar.style.width = `${progressPercent}%`;
-            progressText.textContent = `${progressPercent}%`;
+            progressText.textContent = `${progressPercent.toFixed(1)}%`;
             
             // 更新当前任务信息
             let taskText = status.current_task || '等待开始...';
-            if (downloaded_files > 0) {
+            if (total_works > 0 && downloaded_files > 0) {
+                // 显示基于作品数量的进度
+                taskText = `已下载 ${downloaded_files}/${total_works} 个作品 (${progressPercent.toFixed(1)}%)`;
+            } else if (downloaded_files > 0) {
                 // 显示文件数量
                 taskText = `已下载 ${downloaded_files} 个文件`;
             } else if (total_links > 0) {
@@ -668,14 +790,21 @@ function updateDownloadSpeedAndTime(status) {
     if (downloadInfo.startTime && status.start_time) {
         const elapsed = (new Date() - downloadInfo.startTime) / 1000; // 秒
         const downloaded_files = status.downloaded_files || 0;
+        const total_works = status.total_works || 0;
         
         if (downloaded_files > 0 && elapsed > 0) {
-            // 计算下载速度（基于文件数量）
-            const filesPerSecond = downloaded_files / elapsed;
-            downloadInfo.downloadSpeed = Math.round(filesPerSecond * 100) / 100; // 文件/秒
+            // 计算下载速度（基于作品数量）
+            const worksPerSecond = downloaded_files / elapsed;
+            downloadInfo.downloadSpeed = Math.round(worksPerSecond * 100) / 100; // 作品/秒
             
-            // 由于不知道总数，无法计算剩余时间
-            downloadInfo.estimatedTime = '--:--';
+            // 计算剩余时间
+            if (total_works > 0) {
+                const remaining = Math.max(0, total_works - downloaded_files);
+                const estimatedSeconds = remaining / worksPerSecond;
+                downloadInfo.estimatedTime = formatTime(estimatedSeconds);
+            } else {
+                downloadInfo.estimatedTime = '--:--';
+            }
         } else {
             downloadInfo.downloadSpeed = 0;
             downloadInfo.estimatedTime = '--:--';
@@ -740,11 +869,18 @@ function updateDownloadInfoDisplay(status) {
     document.getElementById('downloadedCount').textContent = status.downloaded_files || 0;
     document.getElementById('failedCount').textContent = status.failed_files || 0;
     
-    // 剩余数量显示为"-"，因为我们不知道总数
-    document.getElementById('remainingCount').textContent = '-';
+    // 显示剩余数量
+    const total_works = status.total_works || 0;
+    const downloaded_files = status.downloaded_files || 0;
+    if (total_works > 0) {
+        const remaining = Math.max(0, total_works - downloaded_files);
+        document.getElementById('remainingCount').textContent = remaining;
+    } else {
+        document.getElementById('remainingCount').textContent = '-';
+    }
     
     // 更新速度和时间
-    const speedUnit = '文件/秒';
+    const speedUnit = '作品/秒';
     document.getElementById('downloadSpeed').textContent = `${downloadInfo.downloadSpeed} ${speedUnit}`;
     document.getElementById('estimatedTime').textContent = downloadInfo.estimatedTime || '--:--';
     
@@ -919,9 +1055,29 @@ async function refreshLogs() {
 }
 
 // 更新统计信息
-function updateStatistics() {
+async function updateStatistics() {
     const links = currentConfig.link || [];
     document.getElementById('totalLinks').textContent = links.length;
+    
+    // 如果有文件统计元素，也更新文件统计
+    const totalFilesElement = document.getElementById('totalFiles');
+    if (totalFilesElement) {
+        try {
+            // 从后端获取最新的文件列表来更新统计
+            const response = await fetch('/api/files');
+            if (response.ok) {
+                const files = await response.json();
+                totalFilesElement.textContent = files.length;
+                console.log(`📊 更新文件统计: ${files.length} 个文件`);
+            }
+        } catch (error) {
+            console.error('获取文件统计失败:', error);
+            // 如果获取失败，尝试使用本地变量
+            if (typeof fileAllFiles !== 'undefined') {
+                totalFilesElement.textContent = fileAllFiles.length;
+            }
+        }
+    }
 }
 
 // 选择路径（模拟）
@@ -1035,4 +1191,160 @@ if (window.location.hostname === 'localhost' || window.location.hostname === '12
         debugBtn.onclick = debugConfigReading;
         document.body.appendChild(debugBtn);
     });
+} 
+
+// 全选/取消全选链接
+function toggleAllLinks() {
+    const selectAllCheckbox = document.getElementById('selectAllLinks');
+    const linkCheckboxes = document.querySelectorAll('.link-checkbox');
+    
+    linkCheckboxes.forEach(checkbox => {
+        checkbox.checked = selectAllCheckbox.checked;
+    });
+}
+
+// 更新全选复选框状态
+function updateSelectAllCheckbox() {
+    const selectAllCheckbox = document.getElementById('selectAllLinks');
+    const linkCheckboxes = document.querySelectorAll('.link-checkbox');
+    
+    if (linkCheckboxes.length === 0) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+        document.getElementById('selectedLinksCount').textContent = '0';
+        return;
+    }
+    
+    const checkedCount = Array.from(linkCheckboxes).filter(cb => cb.checked).length;
+    
+    // 更新选中链接数量显示
+    document.getElementById('selectedLinksCount').textContent = checkedCount;
+    
+    if (checkedCount === 0) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+    } else if (checkedCount === linkCheckboxes.length) {
+        selectAllCheckbox.checked = true;
+        selectAllCheckbox.indeterminate = false;
+    } else {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = true;
+    }
+}
+
+// 获取选中的链接
+function getSelectedLinks() {
+    const linkCheckboxes = document.querySelectorAll('.link-checkbox:checked');
+    const selectedLinks = [];
+    
+    linkCheckboxes.forEach(checkbox => {
+        const index = parseInt(checkbox.value);
+        // 直接从当前配置中获取链接，确保索引正确
+        if (currentConfig.link && currentConfig.link[index]) {
+            selectedLinks.push(currentConfig.link[index]);
+        }
+    });
+    
+    console.log(`📋 选中的链接数量: ${selectedLinks.length}`);
+    return selectedLinks;
+}
+
+// 监听复选框变化
+document.addEventListener('change', function(e) {
+    if (e.target.classList.contains('link-checkbox')) {
+        updateSelectAllCheckbox();
+        // 移除自动删除链接的逻辑，只更新选中状态
+    }
+}); 
+
+// 从配置中移除链接（仅在删除按钮点击时调用）
+function removeLinkFromConfig(index) {
+    if (currentConfig.link && currentConfig.link[index]) {
+        console.log(`🗑️ 从配置中移除链接 ${index}: ${currentConfig.link[index]}`);
+        
+        // 从配置中移除链接
+        currentConfig.link.splice(index, 1);
+        
+        // 从链接数据中移除
+        if (linksData[index]) {
+            linksData.splice(index, 1);
+        }
+        
+        // 重新渲染链接列表
+        updateLinksDisplay(currentConfig.link);
+        
+        // 保存配置到服务器
+        saveConfigToServer();
+    }
+}
+
+// 保存配置到服务器
+async function saveConfigToServer() {
+    try {
+        console.log('💾 保存配置到服务器...');
+        const response = await fetch('/api/config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(currentConfig)
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            console.log('✅ 配置保存成功');
+        } else {
+            console.error('❌ 配置保存失败:', result.message);
+            showToast('配置保存失败', 'error');
+        }
+    } catch (error) {
+        console.error('❌ 保存配置失败:', error);
+        showToast('保存配置失败', 'error');
+    }
+}
+
+// 获取用户作品数量
+async function fetchUserWorkCount(secUid, index) {
+    try {
+        const response = await fetch('/api/user/work-count', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ sec_uid: secUid })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            // 更新表格中的作品数量
+            const tbody = document.getElementById('linksTableBody');
+            const row = tbody.children[index];
+            if (row) {
+                const countCell = row.children[5];
+                countCell.innerHTML = `<span class="fw-bold text-primary">${result.work_count}</span>`;
+                
+                // 更新链接数据
+                if (linksData[index]) {
+                    linksData[index].work_count = result.work_count;
+                }
+            }
+        } else {
+            // 显示获取失败
+            const tbody = document.getElementById('linksTableBody');
+            const row = tbody.children[index];
+            if (row) {
+                const countCell = row.children[5];
+                countCell.innerHTML = '<span class="text-warning">获取失败</span>';
+            }
+        }
+    } catch (error) {
+        console.error('获取用户作品数量失败:', error);
+        const tbody = document.getElementById('linksTableBody');
+        const row = tbody.children[index];
+        if (row) {
+            const countCell = row.children[5];
+            countCell.innerHTML = '<span class="text-warning">网络错误</span>';
+        }
+    }
 } 

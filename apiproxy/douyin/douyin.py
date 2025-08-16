@@ -146,6 +146,9 @@ class Douyin(object):
                         raw = requests.get(url=jx_url, headers=douyin_headers).text
                         datadict = json.loads(raw)
                         if datadict is not None and datadict["status_code"] == 0:
+                            # 检查token是否过期
+                            if self._check_token_expired(datadict):
+                                return {}
                             break
                     except Exception as e:
                         end = time.time()  # 结束时间
@@ -241,9 +244,31 @@ class Douyin(object):
                     res = requests.get(url=url, headers=douyin_headers)
                     datadict = json.loads(res.text)
                     
+                    # 调试信息：打印请求URL和响应状态
+                    if total_fetched == 0:  # 只在第一次请求时打印
+                        self.console.print(f"[cyan]🔍 调试信息:[/]")
+                        self.console.print(f"[cyan]   请求URL: {url}[/]")
+                        self.console.print(f"[cyan]   响应状态: {res.status_code}[/]")
+                        self.console.print(f"[cyan]   Cookie长度: {len(douyin_headers.get('Cookie', ''))}[/]")
+                    
                     # 处理返回数据
                     if not datadict or datadict.get("status_code") != 0:
                         self.console.print(f"[red]❌ API请求失败: {datadict.get('status_msg', '未知错误')}[/]")
+                        break
+                    
+                    # 检查是否有aweme_list
+                    if "aweme_list" not in datadict:
+                        # 检查是否是token过期的情况
+                        if self._check_token_expired(datadict):
+                            self.console.print(f"[yellow]📋 返回数据: {datadict}[/]")
+                        else:
+                            self.console.print(f"[red]❌ API返回数据格式异常，缺少aweme_list字段[/]")
+                            self.console.print(f"[yellow]📋 返回数据: {datadict}[/]")
+                        break
+                    
+                    # 检查aweme_list是否为空
+                    if not datadict["aweme_list"]:
+                        self.console.print(f"[yellow]⚠️  该用户没有更多作品了[/]")
                         break
                         
                     current_count = len(datadict["aweme_list"])
@@ -296,12 +321,15 @@ class Douyin(object):
                             awemeList.append(aweme_data)
 
                     # 检查是否还有更多数据
-                    if not datadict["has_more"]:
+                    if not datadict.get("has_more", False):
                         self.console.print(f"[green]✅ 已获取全部作品: {total_fetched}个[/]")
                         break
                     
                     # 更新游标
-                    max_cursor = datadict["max_cursor"]
+                    max_cursor = datadict.get("max_cursor", 0)
+                    
+                    # 添加延迟避免请求过快
+                    time.sleep(1)
                     
                 except Exception as e:
                     self.console.print(f"[red]❌ 获取作品列表出错: {str(e)}[/]")
@@ -319,6 +347,20 @@ class Douyin(object):
         except Exception as e:
             logger.error(f"数据转换错误: {str(e)}")
             return None
+    
+    def _check_token_expired(self, datadict):
+        """检查token是否过期"""
+        if datadict.get("status_code") == 0 and len(datadict) == 1:
+            self.console.print(f"[red]❌ Token已过期！[/]")
+            self.console.print(f"[yellow]💡 解决方案:[/]")
+            self.console.print(f"[yellow]   1. 打开浏览器访问 https://www.douyin.com[/]")
+            self.console.print(f"[yellow]   2. 登录您的抖音账号[/]")
+            self.console.print(f"[yellow]   3. 按F12打开开发者工具[/]")
+            self.console.print(f"[yellow]   4. 在Network标签页中找到任意请求[/]")
+            self.console.print(f"[yellow]   5. 复制请求头中的Cookie值[/]")
+            self.console.print(f"[yellow]   6. 更新配置文件中的cookies字段[/]")
+            return True
+        return False
 
     def getLiveInfo(self, web_rid: str):
         print('[  提示  ]:正在请求的直播间 id = %s\r\n' % web_rid)

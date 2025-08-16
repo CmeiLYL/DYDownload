@@ -163,6 +163,7 @@ class VideoThumbnailManager:
         self.download_path = Path(download_path).resolve()
         self.cache_dir = self.download_path / 'temp' / 'thumbnails'
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.ffmpeg_command = 'ffmpeg'  # 默认ffmpeg命令
         self.ffmpeg_available = self._check_ffmpeg()
         self.generation_queue = queue.Queue()
         self.is_generating = False
@@ -178,8 +179,30 @@ class VideoThumbnailManager:
     def _check_ffmpeg(self):
         """检查ffmpeg是否可用"""
         try:
-            result = self._execute_ffmpeg_safe(['ffmpeg', '-version'], timeout=5)
-            return result is not None and result.returncode == 0
+            # 尝试多种可能的ffmpeg命令
+            possible_commands = [
+                ['ffmpeg', '-version'],
+                ['ffmpeg.exe', '-version'],
+                ['C:\\ffmpeg\\bin\\ffmpeg.exe', '-version'],
+                ['C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe', '-version'],
+                ['C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe', '-version']
+            ]
+            
+            for cmd in possible_commands:
+                try:
+                    logger.info(f"尝试检测ffmpeg: {' '.join(cmd)}")
+                    result = self._execute_ffmpeg_safe(cmd, timeout=5)
+                    if result is not None and result.returncode == 0:
+                        logger.info(f"✓ ffmpeg检测成功: {' '.join(cmd)}")
+                        self.ffmpeg_command = cmd[0]  # 保存成功的命令
+                        return True
+                except Exception as e:
+                    logger.debug(f"ffmpeg命令失败: {' '.join(cmd)} - {e}")
+                    continue
+            
+            logger.error("所有ffmpeg命令都失败，请确保ffmpeg已正确安装并添加到PATH中")
+            return False
+            
         except Exception as e:
             logger.error(f"检查ffmpeg失败: {e}")
             return False
@@ -245,6 +268,19 @@ class VideoThumbnailManager:
             logger.error(f"请求缩略图生成失败: {e}")
             return False
     
+    def request_batch_thumbnail_generation(self, video_paths):
+        """批量请求生成缩略图（异步）"""
+        if not self.ffmpeg_available:
+            return 0
+        
+        success_count = 0
+        for video_path in video_paths:
+            if self.request_thumbnail_generation(video_path):
+                success_count += 1
+        
+        logger.info(f"批量缩略图生成请求完成: {success_count}/{len(video_paths)} 个视频已加入队列")
+        return success_count
+    
     def _generate_thumbnail_sync(self, video_path):
         """同步生成缩略图（在后台线程中调用）"""
         try:
@@ -258,9 +294,12 @@ class VideoThumbnailManager:
                 temp_thumb_path = temp_file.name
             
             try:
+                # 使用保存的ffmpeg命令
+                ffmpeg_cmd = getattr(self, 'ffmpeg_command', 'ffmpeg')
+                
                 # 使用ffmpeg提取第1秒的帧
                 cmd = [
-                    'ffmpeg', '-i', str(video_full_path),
+                    ffmpeg_cmd, '-i', str(video_full_path),
                     '-ss', '00:00:01',  # 从第1秒开始
                     '-vframes', '1',    # 提取1帧
                     '-vf', 'scale=200:150:force_original_aspect_ratio=decrease,pad=200:150:(ow-iw)/2:(oh-ih)/2',  # 缩放到200x150
@@ -483,6 +522,30 @@ def parse_link():
         logger.error(f"解析链接失败: {e}")
         return jsonify({"success": False, "message": f"解析链接失败: {str(e)}"}), 500
 
+@app.route('/api/user/work-count', methods=['POST'])
+def get_user_work_count():
+    try:
+        data = request.get_json()
+        sec_uid = data.get('sec_uid', '').strip()
+        if not sec_uid:
+            return jsonify({"success": False, "message": "用户ID不能为空"})
+        
+        from apiproxy.douyin.douyin import Douyin
+        dy = Douyin()
+        
+        # 使用getUserDetailInfo方法获取用户详细信息
+        user_detail = dy.getUserDetailInfo(sec_uid=sec_uid)
+        
+        if user_detail and 'user' in user_detail:
+            user = user_detail['user']
+            if 'aweme_count' in user and user['aweme_count']:
+                work_count = user['aweme_count']
+                return jsonify({"success": True, "work_count": work_count})
+        
+        return jsonify({"success": False, "message": "无法获取用户作品数量"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"获取用户作品数量失败: {str(e)}"}), 500
+
 @app.route('/api/download/start', methods=['POST'])
 def start_download():
     """开始下载"""
@@ -496,31 +559,25 @@ def start_download():
         
         # 收集配置
         config_data = data.get('config', config_manager.config)
-        logger.info(f"准备保存配置到YAML文件: {config_manager.config_path}")
-        logger.info(f"配置内容:")
-        logger.info(f"  - 链接数量: {len(config_data.get('link', []))}")
-        logger.info(f"  - 下载选项: music={config_data.get('music', False)}, cover={config_data.get('cover', False)}, avatar={config_data.get('avatar', False)}, json={config_data.get('json', True)}")
-        logger.info(f"  - 下载数量: post={config_data.get('number', {}).get('post', 0)}, like={config_data.get('number', {}).get('like', 0)}, mix={config_data.get('number', {}).get('mix', 0)}")
-        logger.info(f"  - 下载模式: {config_data.get('mode', [])}")
-        logger.info(f"  - 线程数: {config_data.get('thread', 5)}")
-        logger.info(f"  - 下载路径: {config_data.get('path', './Downloaded/')}")
         
-        logger.info("正在保存配置到YAML文件...")
-        if not config_manager.save_config(config_data):
-            logger.error("配置保存失败")
-            return jsonify({"success": False, "message": "配置保存失败"}), 500
+        # 创建下载专用的配置，不影响原始配置
+        download_config = config_data.copy()
         
-        logger.info("✓ 配置已成功保存到YAML文件")
-        try:
-            with open(config_manager.config_path, 'r', encoding='utf-8') as f:
-                saved_config = yaml.safe_load(f)
-            logger.info("✓ 配置文件验证成功")
-        except Exception as e:
-            logger.error(f"配置文件验证失败: {e}")
-            return jsonify({"success": False, "message": "配置文件验证失败"}), 500
+        logger.info(f"准备下载配置:")
+        logger.info(f"  - 链接数量: {len(download_config.get('link', []))}")
+        logger.info(f"  - 下载选项: music={download_config.get('music', False)}, cover={download_config.get('cover', False)}, avatar={download_config.get('avatar', False)}, json={download_config.get('json', True)}")
+        logger.info(f"  - 下载数量: post={download_config.get('number', {}).get('post', 0)}, like={download_config.get('number', {}).get('like', 0)}, mix={download_config.get('number', {}).get('mix', 0)}")
+        logger.info(f"  - 下载模式: {download_config.get('mode', [])}")
+        logger.info(f"  - 线程数: {download_config.get('thread', 5)}")
+        logger.info(f"  - 下载路径: {download_config.get('path', './Downloaded/')}")
+        
+        # 注意：这里不再保存配置到YAML文件，避免覆盖原始配置
+        logger.info("✓ 使用下载专用配置，不影响原始配置文件")
         
         # 重置下载状态
-        links = config_data.get('link', [])
+        links = download_config.get('link', [])
+        total_works = download_config.get('total_works', 0)  # 获取总作品数量
+        
         download_status["running"] = True
         download_status["current_task"] = "准备下载..."
         download_status["progress"] = 0
@@ -530,11 +587,11 @@ def start_download():
         download_status["current_link"] = links[0] if links else None
         download_status["downloaded_files"] = 0
         download_status["failed_files"] = 0
-        download_status["total_works"] = 0
+        download_status["total_works"] = total_works  # 设置总作品数量
         download_status["start_time"] = time.time()
         download_status["estimated_time"] = None
         
-        logger.info(f"初始化下载状态: 总链接数={len(links)}")
+        logger.info(f"初始化下载状态: 总链接数={len(links)}, 总作品数={total_works}")
         
         # 启动下载线程
         download_thread = threading.Thread(target=run_download, args=(data,))
@@ -565,12 +622,11 @@ def run_download(data):
     try:
         logger.info("开始执行下载任务")
         
-        # 重新加载配置文件，确保使用最新保存的配置
-        logger.info("重新加载配置文件...")
-        config_manager.config = config_manager.load_config()
-        config = config_manager.config
+        # 使用传入的下载配置，而不是重新加载配置文件
+        config_data = data.get('config', config_manager.config)
+        config = config_data
         
-        logger.info("✓ 配置文件重新加载完成")
+        logger.info("✓ 使用下载专用配置")
         logger.info(f"当前配置:")
         logger.info(f"  - 链接数量: {len(config.get('link', []))}")
         logger.info(f"  - 下载选项: music={config.get('music', False)}, cover={config.get('cover', False)}, avatar={config.get('avatar', False)}, json={config.get('json', True)}")
@@ -768,6 +824,41 @@ def execute_download_logic(douyin_module):
             download_status["downloaded_files"] = final_new_files
             download_status["current_task"] = f"✓ 下载完成，共下载 {final_new_files} 个文件"
             logger.info(f"下载完成，最终新增文件数: {final_new_files}")
+            
+            # 下载完成后异步生成缩略图（不阻塞）
+            def generate_thumbnails_async():
+                try:
+                    logger.info("开始自动生成缩略图...")
+                    
+                    # 获取所有视频文件
+                    video_extensions = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm'}
+                    video_files_to_process = []
+                    
+                    for item in download_path.rglob('*'):
+                        if item.is_file() and item.suffix.lower() in video_extensions:
+                            # 排除temp文件夹中的文件
+                            if 'temp' not in item.parts:
+                                # 获取相对路径
+                                relative_path = str(item.relative_to(download_path))
+                                # 检查缩略图状态
+                                status = thumbnail_manager.get_thumbnail_status(relative_path)
+                                if status in ["not_generated", "outdated"]:
+                                    video_files_to_process.append(relative_path)
+                    
+                    if video_files_to_process:
+                        # 使用批量方法请求缩略图生成
+                        success_count = thumbnail_manager.request_batch_thumbnail_generation(video_files_to_process)
+                        logger.info(f"已为 {success_count} 个视频文件请求缩略图生成")
+                    else:
+                        logger.info("没有需要生成缩略图的视频文件")
+                        
+                except Exception as e:
+                    logger.error(f"自动生成缩略图失败: {e}")
+            
+            # 启动异步缩略图生成线程
+            thumbnail_thread = threading.Thread(target=generate_thumbnails_async, daemon=True)
+            thumbnail_thread.start()
+            logger.info("缩略图生成线程已启动（异步）")
 
     except Exception as e:
         logger.error(f"执行下载逻辑失败: {e}")
@@ -813,11 +904,20 @@ def count_downloaded_files(download_path):
     """统计下载目录中的文件数量"""
     try:
         count = 0
+        # 定义要排除的文件类型，与get_downloaded_files保持一致
+        excluded_extensions = {'.json', '.txt', '.log'}
+        
         for item in download_path.rglob('*'):
             if item.is_file():
                 # 排除temp文件夹中的文件
-                if 'temp' not in item.parts:
-                    count += 1
+                if 'temp' in item.parts:
+                    continue
+                
+                # 排除JSON等非目标文件类型
+                if item.suffix.lower() in excluded_extensions:
+                    continue
+                    
+                count += 1
         return count
     except Exception as e:
         logger.error(f"统计文件数量失败: {e}")
@@ -1234,6 +1334,34 @@ def serve_video():
     except Exception as e:
         logger.error(f"视频API: 处理请求时发生异常: {e}")
         return jsonify({"error": "视频服务失败"}), 500
+
+@app.route('/health')
+def health_check():
+    """健康检查端点"""
+    try:
+        # 检查基本功能
+        config_ok = config_manager.config is not None
+        download_path_ok = Path(config_manager.config.get('path', './Downloaded/')).exists()
+        
+        status = "healthy" if config_ok and download_path_ok else "unhealthy"
+        
+        return jsonify({
+            "status": status,
+            "timestamp": datetime.now().isoformat(),
+            "version": "1.0.0",
+            "checks": {
+                "config": config_ok,
+                "download_path": download_path_ok
+            }
+        })
+    except Exception as e:
+        logger.error(f"健康检查失败: {e}")
+        return jsonify({
+            "status": "unhealthy",
+            "timestamp": datetime.now().isoformat(),
+            "version": "1.0.0",
+            "error": str(e)
+        }), 500
 
 if __name__ == '__main__':
     # 确保必要的目录存在

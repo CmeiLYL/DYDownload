@@ -164,4 +164,5 @@ logs/
 config.yml
 config.yml.backup
 Downloaded
+package/dist
 

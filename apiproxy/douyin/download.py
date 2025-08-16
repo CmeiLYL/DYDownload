@@ -61,36 +61,50 @@ class Download(object):
             # 下载视频或图集
             if aweme["awemeType"] == 0:  # 视频
                 video_path = path / f"{name}_video.mp4"
-                if url := aweme.get("video", {}).get("play_addr", {}).get("url_list", [None])[0]:
-                    if not self._download_media(url, video_path, f"[视频]{desc}"):
-                        raise Exception("视频下载失败")
+                video_url = aweme.get("video", {}).get("play_addr", {}).get("url_list", [None])[0]
+                if video_url:
+                    if not self._download_media(video_url, video_path, f"[视频]{desc}"):
+                        raise Exception(f"视频下载失败: URL={video_url[:50]}...")
+                else:
+                    raise Exception("无法获取视频URL")
                     
             elif aweme["awemeType"] == 1:  # 图集
-                for i, image in enumerate(aweme.get("images", [])):
-                    if url := image.get("url_list", [None])[0]:
+                images = aweme.get("images", [])
+                if not images:
+                    raise Exception("图集数据为空")
+                    
+                for i, image in enumerate(images):
+                    image_url = image.get("url_list", [None])[0]
+                    if image_url:
                         image_path = path / f"{name}_image_{i}.jpeg"
-                        if not self._download_media(url, image_path, f"[图集{i+1}]{desc}"):
-                            raise Exception(f"图片{i+1}下载失败")
+                        if not self._download_media(image_url, image_path, f"[图集{i+1}]{desc}"):
+                            raise Exception(f"图片{i+1}下载失败: URL={image_url[:50]}...")
+                    else:
+                        raise Exception(f"无法获取图片{i+1}的URL")
 
             # 下载音乐
-            if self.music and (url := aweme.get("music", {}).get("play_url", {}).get("url_list", [None])[0]):
-                music_name = utils.replaceStr(aweme["music"]["title"])
-                music_path = path / f"{name}_music_{music_name}.mp3"
-                if not self._download_media(url, music_path, f"[音乐]{desc}"):
-                    self.console.print(f"[yellow]⚠️  音乐下载失败: {desc}[/]")
+            if self.music:
+                music_url = aweme.get("music", {}).get("play_url", {}).get("url_list", [None])[0]
+                if music_url:
+                    music_name = utils.replaceStr(aweme["music"]["title"])
+                    music_path = path / f"{name}_music_{music_name}.mp3"
+                    if not self._download_media(music_url, music_path, f"[音乐]{desc}"):
+                        self.console.print(f"[yellow]⚠️  音乐下载失败: {desc}[/]")
 
             # 下载封面
             if self.cover and aweme["awemeType"] == 0:
-                if url := aweme.get("video", {}).get("cover", {}).get("url_list", [None])[0]:
+                cover_url = aweme.get("video", {}).get("cover", {}).get("url_list", [None])[0]
+                if cover_url:
                     cover_path = path / f"{name}_cover.jpeg"
-                    if not self._download_media(url, cover_path, f"[封面]{desc}"):
+                    if not self._download_media(cover_url, cover_path, f"[封面]{desc}"):
                         self.console.print(f"[yellow]⚠️  封面下载失败: {desc}[/]")
 
             # 下载头像
             if self.avatar:
-                if url := aweme.get("author", {}).get("avatar", {}).get("url_list", [None])[0]:
+                avatar_url = aweme.get("author", {}).get("avatar", {}).get("url_list", [None])[0]
+                if avatar_url:
                     avatar_path = path / f"{name}_avatar.jpeg"
-                    if not self._download_media(url, avatar_path, f"[头像]{desc}"):
+                    if not self._download_media(avatar_url, avatar_path, f"[头像]{desc}"):
                         self.console.print(f"[yellow]⚠️  头像下载失败: {desc}[/]")
                     
         except Exception as e:
@@ -202,24 +216,26 @@ class Download(object):
                 total_size = int(response.headers.get('content-length', 0)) + file_size
                 mode = 'ab' if file_size > 0 else 'wb'
                 
-                with self.progress:
-                    task = self.progress.add_task(f"[cyan]⬇️  {desc}", total=total_size)
-                    self.progress.update(task, completed=file_size)  # 更新断点续传的进度
-                    
-                    with open(filepath, mode) as f:
-                        for chunk in response.iter_content(chunk_size=self.chunk_size):
-                            if chunk:
-                                size = f.write(chunk)
-                                self.progress.update(task, advance=size)
-                                
+                # 使用现有的进度条，而不是创建新的
+                task = self.progress.add_task(f"[cyan]⬇️  {desc}", total=total_size)
+                self.progress.update(task, completed=file_size)  # 更新断点续传的进度
+                
+                with open(filepath, mode) as f:
+                    for chunk in response.iter_content(chunk_size=self.chunk_size):
+                        if chunk:
+                            size = f.write(chunk)
+                            self.progress.update(task, advance=size)
+                            
+                # 下载完成后移除任务
+                self.progress.remove_task(task)
                 return True
                 
             except Exception as e:
                 logger.warning(f"下载失败 (尝试 {attempt + 1}/{self.retry_times}): {str(e)}")
                 if attempt == self.retry_times - 1:
-                    self.console.print(f"[red]❌ 下载失败: {desc}\n   {str(e)}[/]")
                     return False
-                time.sleep(1)  # 重试前等待
+                time.sleep(2 ** attempt)  # 指数退避
+        return False
 
 
 class DownloadManager:
