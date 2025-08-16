@@ -59,18 +59,20 @@ def setup_logging():
 # 初始化日志
 logger = setup_logging()
 
-app = Flask(__name__)
+app = Flask(__name__, 
+           template_folder='ui/templates',
+           static_folder='ui/static')
 CORS(app)
 
 # 全局变量
-config_file = "config.yml"
+config_file = "settings/config.yml"
 download_queue = queue.Queue()
 download_status = {"running": False, "current_task": None, "progress": 0}
 
 class ConfigManager:
     """配置管理器"""
     
-    def __init__(self, config_path="config.yml"):
+    def __init__(self, config_path="settings/config.yml"):
         self.config_path = Path(config_path)
         self.config = self.load_config()
     
@@ -483,9 +485,35 @@ def start_download():
         
         logger.info("开始下载任务")
         
-        # 更新配置
-        if not config_manager.save_config(data.get('config', config_manager.config)):
+        # 获取配置数据
+        config_data = data.get('config', config_manager.config)
+        logger.info(f"准备保存配置到YAML文件: {config_manager.config_path}")
+        
+        # 记录配置信息
+        logger.info(f"配置内容:")
+        logger.info(f"  - 链接数量: {len(config_data.get('link', []))}")
+        logger.info(f"  - 下载选项: music={config_data.get('music', False)}, cover={config_data.get('cover', False)}, avatar={config_data.get('avatar', False)}, json={config_data.get('json', True)}")
+        logger.info(f"  - 下载数量: post={config_data.get('number', {}).get('post', 0)}, like={config_data.get('number', {}).get('like', 0)}, mix={config_data.get('number', {}).get('mix', 0)}")
+        logger.info(f"  - 下载模式: {config_data.get('mode', [])}")
+        logger.info(f"  - 线程数: {config_data.get('thread', 5)}")
+        logger.info(f"  - 下载路径: {config_data.get('path', './Downloaded/')}")
+        
+        # 保存配置到YAML文件
+        logger.info("正在保存配置到YAML文件...")
+        if not config_manager.save_config(config_data):
+            logger.error("配置保存失败")
             return jsonify({"success": False, "message": "配置保存失败"}), 500
+        
+        logger.info("✓ 配置已成功保存到YAML文件")
+        
+        # 验证配置文件是否已更新
+        try:
+            with open(config_manager.config_path, 'r', encoding='utf-8') as f:
+                saved_config = yaml.safe_load(f)
+            logger.info("✓ 配置文件验证成功")
+        except Exception as e:
+            logger.error(f"配置文件验证失败: {e}")
+            return jsonify({"success": False, "message": "配置文件验证失败"}), 500
         
         # 启动下载线程
         download_status["running"] = True
@@ -497,7 +525,7 @@ def start_download():
         download_thread.start()
         
         logger.info("下载任务已启动")
-        return jsonify({"success": True, "message": "下载任务已启动"})
+        return jsonify({"success": True, "message": "配置已保存，下载任务已启动"})
     except Exception as e:
         logger.error(f"启动下载失败: {e}")
         return jsonify({"success": False, "message": f"启动下载失败: {str(e)}"}), 500
@@ -519,7 +547,17 @@ def run_download(data):
     """运行下载任务"""
     try:
         logger.info("开始执行下载任务")
-        config = data.get('config', config_manager.config)
+        
+        # 重新加载配置文件，确保使用最新保存的配置
+        logger.info("重新加载配置文件...")
+        config_manager.config = config_manager.load_config()
+        config = config_manager.config
+        
+        logger.info("✓ 配置文件重新加载完成")
+        logger.info(f"当前配置:")
+        logger.info(f"  - 链接数量: {len(config.get('link', []))}")
+        logger.info(f"  - 下载选项: music={config.get('music', False)}, cover={config.get('cover', False)}, avatar={config.get('avatar', False)}, json={config.get('json', True)}")
+        logger.info(f"  - 下载数量: post={config.get('number', {}).get('post', 0)}, like={config.get('number', {}).get('like', 0)}, mix={config.get('number', {}).get('mix', 0)}")
         
         # 检查是否有链接
         links = config.get('link', [])
@@ -540,6 +578,12 @@ def run_download(data):
         
         # 导入DouYinCommand模块
         try:
+            import sys
+            import os
+            # 添加script目录到Python路径
+            script_path = os.path.join(os.path.dirname(__file__), 'script')
+            if script_path not in sys.path:
+                sys.path.insert(0, script_path)
             import DouYinCommand
             logger.info("✓ 成功导入DouYinCommand模块")
         except ImportError as e:
@@ -549,14 +593,16 @@ def run_download(data):
         
         # 更新DouYinCommand的配置
         try:
+            logger.info("正在更新DouYinCommand配置...")
+            
             # 更新全局配置
             DouYinCommand.configModel["link"] = links
             DouYinCommand.configModel["path"] = str(download_path)
-            DouYinCommand.configModel["music"] = config.get('music', True)
-            DouYinCommand.configModel["cover"] = config.get('cover', True)
-            DouYinCommand.configModel["avatar"] = config.get('avatar', True)
+            DouYinCommand.configModel["music"] = config.get('music', False)
+            DouYinCommand.configModel["cover"] = config.get('cover', False)
+            DouYinCommand.configModel["avatar"] = config.get('avatar', False)
             DouYinCommand.configModel["json"] = config.get('json', True)
-            DouYinCommand.configModel["folderstyle"] = config.get('folderstyle', True)
+            DouYinCommand.configModel["folderstyle"] = config.get('folderstyle', False)
             DouYinCommand.configModel["mode"] = config.get('mode', ['post'])
             DouYinCommand.configModel["thread"] = config.get('thread', 5)
             DouYinCommand.configModel["database"] = config.get('database', True)
@@ -584,9 +630,13 @@ def run_download(data):
                 DouYinCommand.configModel["cookie"] = cookie_str
                 logger.info("✓ 已设置Cookie")
             
-            logger.info("✓ 成功更新配置")
+            logger.info("✓ 成功更新DouYinCommand配置")
+            logger.info(f"DouYinCommand配置验证:")
+            logger.info(f"  - 下载选项: music={DouYinCommand.configModel['music']}, cover={DouYinCommand.configModel['cover']}, avatar={DouYinCommand.configModel['avatar']}, json={DouYinCommand.configModel['json']}")
+            logger.info(f"  - 下载数量: post={DouYinCommand.configModel['number']['post']}, like={DouYinCommand.configModel['number']['like']}, mix={DouYinCommand.configModel['number']['mix']}")
+            
         except Exception as e:
-            logger.error(f"✗ 更新配置失败: {e}")
+            logger.error(f"✗ 更新DouYinCommand配置失败: {e}")
             download_status["current_task"] = "错误：配置更新失败"
             return
         
@@ -597,7 +647,7 @@ def run_download(data):
             logger.info("正在启动DouYinCommand下载...")
             
             # 调用DouYinCommand的main函数
-            DouYinCommand.main()
+            DouYinCommand.main(load_from_file=False)
             
             download_status["current_task"] = "✓ 下载完成"
             download_status["progress"] = 100
@@ -1021,8 +1071,8 @@ def serve_video():
 
 if __name__ == '__main__':
     # 确保必要的目录存在
-    os.makedirs('templates', exist_ok=True)
-    os.makedirs('static', exist_ok=True)
+    os.makedirs('ui/templates', exist_ok=True)
+    os.makedirs('ui/static', exist_ok=True)
     os.makedirs('logs', exist_ok=True)
     
     logger.info("Web UI 启动中...")

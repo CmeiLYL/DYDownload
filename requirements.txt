@@ -1,32 +1,32 @@
 # Core dependencies
-requests==2.31.0          # HTTP 请求库
-pyyaml==6.0.1            # YAML 配置支持
-rich==13.7.0             # 终端美化
-tqdm==4.66.1             # 进度条显示
+requests==2.31.0
+urllib3>=2.0.0
+certifi>=2023.7.22
+charset-normalizer>=3.2.0
+idna>=3.4
+pyyaml==6.0.1
+rich==13.7.0
+tqdm==4.66.1
 
 # Async support (optional)
-aiohttp>=3.8.0           # 异步 HTTP
+aiohttp>=3.8.0
 
 # Logging
-python-json-logger==2.0.7 # JSON 格式日志
+python-json-logger==2.0.7
 
 # Development
-pytest==7.4.3            # 单元测试
-black==23.11.0           # 代码格式化
+pytest==7.4.3
+black==23.11.0
 
 # Web UI dependencies
-flask==3.0.0             # Web框架
-flask-cors==4.0.0        # 跨域支持
-werkzeug==3.0.1          # WSGI工具库
-pillow==10.0.1           # 图片处理库
+flask==3.0.0
+flask-cors==4.0.0
+werkzeug==3.0.1
+pillow>=10.2.0
 
-# 重试机制（目前已注释相关代码，可选）
-# tenacity>=8.2.3
-
-# 测试相关（可选）
-# pytest>=7.4.4
-# pytest-asyncio>=0.23.3
-
-# 其他可能需要的包
+# Other dependencies
 python-dateutil>=2.8.2
 requests-toolbelt>=1.0.0
+
+# Optional retry mechanism (currently commented in code)
+# tenacity>=8.2.3

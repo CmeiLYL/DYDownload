@@ -9,12 +9,12 @@ cover: false
 database: true
 folderstyle: false
 increase:
-  allmix: true
+  allmix: false
   like: false
-  mix: true
+  mix: false
   music: false
-  post: true
-json: false
+  post: false
+json: true
 link:
 - https://www.douyin.com/user/MS4wLjABAAAAo9d0IAmNP9MBWh4hDWFjMQ8sZduLS6PDnGagFhJ855E
 - https://www.douyin.com/user/MS4wLjABAAAAKlOjglKp61iTHbCwM-RIh7nmtfcG9V9enixT7KKDz40
@@ -26,7 +26,6 @@ link:
 - https://v.douyin.com/-I8bPPZsjIc/
 mode:
 - post
-- mix
 music: false
 number:
   allmix: 0

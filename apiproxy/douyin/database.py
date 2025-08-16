@@ -8,7 +8,17 @@ import json
 
 class DataBase(object):
     def __init__(self):
-        self.conn = sqlite3.connect('data.db')
+        import os
+        # 获取当前文件所在目录
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # 从apiproxy/douyin目录回到项目根目录，然后进入settings目录
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        db_path = os.path.join(project_root, 'settings', 'data.db')
+        
+        # 确保settings目录存在
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        
+        self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
         self.create_user_post_table()
         self.create_user_like_table()

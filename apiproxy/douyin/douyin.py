@@ -22,7 +22,12 @@ import sys
 import os
 # 添加项目根目录到系统路径，确保可以正确导入utils模块
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from utils.logger import logger
+try:
+    from utils.logger import logger
+except ImportError:
+    # 如果无法导入utils.logger，使用标准logging
+    import logging
+    logger = logging.getLogger(__name__)
 
 # 创建全局console实例
 console = Console()

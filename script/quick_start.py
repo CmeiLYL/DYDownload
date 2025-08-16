@@ -47,15 +47,15 @@ def check_dependencies():
 
 def check_config():
     """检查配置文件"""
-    config_file = Path("config.yml")
+    config_file = Path("settings/config.yml")
     if not config_file.exists():
         print("⚠️  配置文件不存在，正在创建...")
-        example_config = Path("config.example.yml")
+        example_config = Path("settings/config.example.yml")
         if example_config.exists():
             import shutil
             shutil.copy(example_config, config_file)
-            print("✅ 已创建配置文件 config.yml")
-            print("请编辑 config.yml 文件，添加抖音链接")
+            print("✅ 已创建配置文件 settings/config.yml")
+            print("请编辑 settings/config.yml 文件，添加抖音链接")
         else:
             print("❌ 配置文件示例不存在")
             return False
@@ -66,9 +66,9 @@ def check_config():
 
 def check_directories():
     """检查必要目录"""
-    directories = ['logs', 'Downloaded', 'templates', 'static']
+    directories = ['logs', 'Downloaded', 'ui/templates', 'ui/static']
     for directory in directories:
-        Path(directory).mkdir(exist_ok=True)
+        Path(directory).mkdir(parents=True, exist_ok=True)
         print(f"✅ 目录 {directory}/")
 
 def start_web_ui():
@@ -77,6 +77,12 @@ def start_web_ui():
     
     try:
         # 启动Flask应用
+        import sys
+        import os
+        # 添加项目根目录到Python路径
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
         from app import app
         print("✅ Flask应用启动成功")
         print("🌐 访问地址：http://localhost:5000")

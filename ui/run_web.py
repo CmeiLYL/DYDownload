@@ -32,7 +32,7 @@ def check_dependencies():
 
 def create_directories():
     """创建必要的目录"""
-    directories = ['templates', 'static', 'logs', 'Downloaded']
+    directories = ['logs', 'Downloaded']
     for directory in directories:
         Path(directory).mkdir(exist_ok=True)
 
@@ -52,6 +52,12 @@ def main():
     
     # 导入并启动Flask应用
     try:
+        import sys
+        import os
+        # 添加项目根目录到Python路径
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
         from app import app
         
         # 在后台线程中打开浏览器

@@ -162,7 +162,9 @@ def argument():
 
 def yamlConfig():
     curPath = os.path.dirname(os.path.realpath(sys.argv[0]))
-    yamlPath = os.path.join(curPath, "config.yml")
+    # 修复路径：从script目录回到项目根目录，然后进入settings目录
+    project_root = os.path.dirname(curPath)
+    yamlPath = os.path.join(project_root, "settings", "config.yml")
     
     try:
         with open(yamlPath, 'r', encoding='utf-8') as f:
@@ -186,7 +188,8 @@ def yamlConfig():
                 configModel["end_time"] = time.strftime("%Y-%m-%d", time.localtime())
             
     except FileNotFoundError:
-        douyin_logger.warning("未找到配置文件config.yml")
+        douyin_logger.warning(f"未找到配置文件: {yamlPath}")
+        douyin_logger.warning("请确保配置文件存在于项目根目录的settings/config.yml")
     except Exception as e:
         douyin_logger.warning(f"配置文件解析出错: {str(e)}")
 
@@ -211,14 +214,14 @@ def validate_config(config: dict) -> bool:
     return True
 
 
-def main():
+def main(load_from_file=True):
     start = time.time()
 
     # 配置初始化
     args = argument()
     if args.cmd:
         update_config_from_args(args)
-    else:
+    elif load_from_file:
         yamlConfig()
 
     if not validate_config(configModel):

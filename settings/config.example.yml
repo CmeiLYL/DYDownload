@@ -40,11 +40,11 @@ link:
 path: "./downloads"
 
 # 下载选项
-music: true      # 是否下载音乐
-cover: true      # 是否下载封面
-avatar: true     # 是否下载头像
+music: false     # 是否下载音乐
+cover: false     # 是否下载封面
+avatar: false    # 是否下载头像
 json: true       # 是否保存JSON数据
-folderstyle: true  # 是否使用文件夹风格保存
+folderstyle: false  # 是否使用文件夹风格保存
 
 # 下载模式设置
 mode: 

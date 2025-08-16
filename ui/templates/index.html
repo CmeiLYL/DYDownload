@@ -700,6 +700,149 @@
         .image-container img:hover {
             box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
         }
+        
+        /* 下载信息面板样式 */
+        .download-info-panel {
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            border-radius: 12px;
+            padding: 16px;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .download-info-panel h6 {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+        
+        .current-download {
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 8px;
+            padding: 12px;
+            border-left: 4px solid var(--success-color);
+        }
+        
+        .current-file-info {
+            margin-top: 8px;
+        }
+        
+        .current-file-info .text-truncate {
+            font-weight: 500;
+            color: var(--secondary-color);
+            font-size: 0.85rem;
+        }
+        
+        .stat-item {
+            padding: 8px 4px;
+        }
+        
+        .stat-value {
+            font-size: 1.2rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+        
+        .stat-label {
+            font-size: 0.7rem;
+            color: #6b7280;
+            margin-top: 2px;
+        }
+        
+        .speed-info, .time-info {
+            text-align: center;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 6px;
+        }
+        
+        .speed-value, .time-value {
+            font-size: 1rem;
+            font-weight: 600;
+            line-height: 1;
+        }
+        
+        .speed-label, .time-label {
+            font-size: 0.7rem;
+            color: #6b7280;
+            margin-top: 2px;
+        }
+        
+        .recent-downloads {
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 8px;
+            padding: 12px;
+        }
+        
+        .recent-downloads h6 {
+            font-size: 0.8rem;
+            margin-bottom: 8px;
+        }
+        
+        .recent-list {
+            max-height: 120px;
+            overflow-y: auto;
+        }
+        
+        .recent-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            border-bottom: 1px solid #f1f5f9;
+            font-size: 0.75rem;
+        }
+        
+        .recent-item:last-child {
+            border-bottom: none;
+        }
+        
+        .recent-item-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--secondary-color);
+        }
+        
+        .recent-item-status {
+            margin-left: 8px;
+            font-size: 0.65rem;
+        }
+        
+        .recent-item-status.success {
+            color: var(--success-color);
+        }
+        
+        .recent-item-status.failed {
+            color: #ef4444;
+        }
+        
+        .recent-item-status.processing {
+            color: var(--warning-color);
+        }
+        
+        /* 状态徽章样式 */
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 500;
+        }
+        
+        .status-running {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success-color);
+        }
+        
+        .status-stopped {
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+        }
+        
+        .status-paused {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning-color);
+        }
     </style>
 </head>
 <body>
@@ -833,6 +976,24 @@
                                             <input type="number" class="form-control" id="threadInput" min="1" max="10" value="5">
                                         </div>
                                     </div>
+                                    
+                                    <div class="row mt-3">
+                                        <div class="col-12">
+                                            <label class="form-label">下载数量设置（0表示全部下载）</label>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">发布作品数量</label>
+                                            <input type="number" class="form-control" id="postNumberInput" min="0" value="0">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">喜欢作品数量</label>
+                                            <input type="number" class="form-control" id="likeNumberInput" min="0" value="0">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">合集数量</label>
+                                            <input type="number" class="form-control" id="mixNumberInput" min="0" value="0">
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -861,6 +1022,79 @@
                                             <div class="progress-bar" id="progressBar" role="progressbar" style="width: 0%"></div>
                                         </div>
                                         <small class="text-muted" id="currentTask">等待开始...</small>
+                                    </div>
+                                    
+                                    <!-- 详细下载信息 -->
+                                    <div class="mt-4 download-info-panel" id="downloadInfoPanel" style="display: none;">
+                                        <h6 class="text-primary mb-3">
+                                            <i class="bi bi-info-circle"></i> 下载详情
+                                        </h6>
+                                        
+                                        <!-- 当前下载项 -->
+                                        <div class="current-download mb-3">
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <span class="fw-bold text-success">当前下载:</span>
+                                                <span class="badge bg-success" id="currentDownloadStatus">准备中</span>
+                                            </div>
+                                            <div class="current-file-info">
+                                                <div class="text-truncate" id="currentFileName">等待开始...</div>
+                                                <small class="text-muted" id="currentFileType">-</small>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 下载统计 -->
+                                        <div class="download-stats mb-3">
+                                            <div class="row text-center">
+                                                <div class="col-4">
+                                                    <div class="stat-item">
+                                                        <div class="stat-value text-primary" id="downloadedCount">0</div>
+                                                        <div class="stat-label">已下载</div>
+                                                    </div>
+                                                </div>
+                                                <div class="col-4">
+                                                    <div class="stat-item">
+                                                        <div class="stat-value text-warning" id="failedCount">0</div>
+                                                        <div class="stat-label">失败</div>
+                                                    </div>
+                                                </div>
+                                                <div class="col-4">
+                                                    <div class="stat-item">
+                                                        <div class="stat-value text-info" id="remainingCount">0</div>
+                                                        <div class="stat-label">剩余</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 下载速度和时间 -->
+                                        <div class="download-speed-time mb-3">
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="speed-info">
+                                                        <div class="speed-value text-success" id="downloadSpeed">0 KB/s</div>
+                                                        <div class="speed-label">下载速度</div>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="time-info">
+                                                        <div class="time-value text-info" id="estimatedTime">--:--</div>
+                                                        <div class="time-label">预计剩余</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 最近下载记录 -->
+                                        <div class="recent-downloads">
+                                            <h6 class="text-secondary mb-2">
+                                                <i class="bi bi-clock-history"></i> 最近下载
+                                            </h6>
+                                            <div class="recent-list" id="recentDownloadsList">
+                                                <div class="text-muted text-center py-2">
+                                                    <small>暂无下载记录</small>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -922,6 +1156,24 @@
                                             <label class="form-check-label" for="databaseSwitch">
                                                 启用数据库（支持增量更新）
                                             </label>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">下载数量设置（0表示全部下载）</label>
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <label class="form-label">发布作品数量</label>
+                                                <input type="number" class="form-control" id="settingsPostNumberInput" min="0" value="0">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">喜欢作品数量</label>
+                                                <input type="number" class="form-control" id="settingsLikeNumberInput" min="0" value="0">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">合集数量</label>
+                                                <input type="number" class="form-control" id="settingsMixNumberInput" min="0" value="0">
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

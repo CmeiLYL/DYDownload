@@ -28,6 +28,8 @@ async function loadConfig() {
 
 // 从配置更新UI
 function updateUIFromConfig(config) {
+    console.log("🔄 更新UI配置:", config);
+    
     // 更新链接列表
     updateLinksDisplay(config.link || []);
     
@@ -58,6 +60,38 @@ function updateUIFromConfig(config) {
     // 更新线程数
     document.getElementById('threadInput').value = config.thread || 5;
     
+    // 更新下载数量设置 - 从配置文件读取
+    const number = config.number || {};
+    console.log("📊 配置文件中的下载数量设置:", number);
+    
+    // 更新首页下载数量输入框
+    if (document.getElementById('postNumberInput')) {
+        document.getElementById('postNumberInput').value = number.post || 0;
+        console.log("✅ 更新首页发布作品数量:", number.post || 0);
+    }
+    if (document.getElementById('likeNumberInput')) {
+        document.getElementById('likeNumberInput').value = number.like || 0;
+        console.log("✅ 更新首页喜欢作品数量:", number.like || 0);
+    }
+    if (document.getElementById('mixNumberInput')) {
+        document.getElementById('mixNumberInput').value = number.mix || 0;
+        console.log("✅ 更新首页合集数量:", number.mix || 0);
+    }
+    
+    // 更新设置页面下载数量输入框
+    if (document.getElementById('settingsPostNumberInput')) {
+        document.getElementById('settingsPostNumberInput').value = number.post || 0;
+        console.log("✅ 更新设置页面发布作品数量:", number.post || 0);
+    }
+    if (document.getElementById('settingsLikeNumberInput')) {
+        document.getElementById('settingsLikeNumberInput').value = number.like || 0;
+        console.log("✅ 更新设置页面喜欢作品数量:", number.like || 0);
+    }
+    if (document.getElementById('settingsMixNumberInput')) {
+        document.getElementById('settingsMixNumberInput').value = number.mix || 0;
+        console.log("✅ 更新设置页面合集数量:", number.mix || 0);
+    }
+    
     // 更新设置页面
     document.getElementById('downloadPath').value = config.path || './Downloaded/';
     document.getElementById('folderStyleSwitch').checked = config.folderstyle || false;
@@ -77,6 +111,8 @@ function updateUIFromConfig(config) {
     document.getElementById('odinTtInput').value = cookies.odin_tt || '';
     document.getElementById('passportCsrfTokenInput').value = cookies.passport_csrf_token || '';
     document.getElementById('sidGuardInput').value = cookies.sid_guard || '';
+    
+    console.log("✅ UI配置更新完成");
 }
 
 // 更新链接显示
@@ -310,6 +346,9 @@ async function stopDownload() {
 function collectCurrentConfig() {
     const config = { ...currentConfig };
     
+    console.log("🔍 开始收集配置...");
+    console.log("📄 当前配置文件:", config);
+    
     // 收集链接（从表格中获取）
     const linkInputs = document.querySelectorAll('#linksTableBody input');
     config.link = Array.from(linkInputs).map(input => input.value).filter(link => link.trim());
@@ -326,6 +365,57 @@ function collectCurrentConfig() {
     
     // 收集线程数
     config.thread = parseInt(document.getElementById('threadInput').value) || 5;
+    
+    // 收集下载数量设置 - 优先使用配置文件中的值
+    console.log("📊 收集下载数量配置...");
+    
+    // 获取页面输入框的值
+    const postNumberInput = document.getElementById('postNumberInput');
+    const likeNumberInput = document.getElementById('likeNumberInput');
+    const mixNumberInput = document.getElementById('mixNumberInput');
+    
+    const settingsPostNumberInput = document.getElementById('settingsPostNumberInput');
+    const settingsLikeNumberInput = document.getElementById('settingsLikeNumberInput');
+    const settingsMixNumberInput = document.getElementById('settingsMixNumberInput');
+    
+    // 优先使用首页设置，如果首页没有设置则使用设置页面，最后使用配置文件默认值
+    const postValue = (postNumberInput && postNumberInput.value !== '') ? 
+        parseInt(postNumberInput.value) : 
+        (settingsPostNumberInput && settingsPostNumberInput.value !== '') ? 
+            parseInt(settingsPostNumberInput.value) : 
+            (config.number && config.number.post !== undefined) ? 
+                config.number.post : 0;
+    
+    const likeValue = (likeNumberInput && likeNumberInput.value !== '') ? 
+        parseInt(likeNumberInput.value) : 
+        (settingsLikeNumberInput && settingsLikeNumberInput.value !== '') ? 
+            parseInt(settingsLikeNumberInput.value) : 
+            (config.number && config.number.like !== undefined) ? 
+                config.number.like : 0;
+    
+    const mixValue = (mixNumberInput && mixNumberInput.value !== '') ? 
+        parseInt(mixNumberInput.value) : 
+        (settingsMixNumberInput && settingsMixNumberInput.value !== '') ? 
+            parseInt(settingsMixNumberInput.value) : 
+            (config.number && config.number.mix !== undefined) ? 
+                config.number.mix : 0;
+    
+    config.number = {
+        post: postValue,
+        like: likeValue,
+        mix: mixValue,
+        allmix: config.number ? config.number.allmix : 0,
+        music: config.number ? config.number.music : 0
+    };
+    
+    console.log("📊 最终收集的下载数量配置:", config.number);
+    console.log("📊 页面输入框值:");
+    console.log("  - 首页发布作品:", postNumberInput ? postNumberInput.value : "元素不存在");
+    console.log("  - 首页喜欢作品:", likeNumberInput ? likeNumberInput.value : "元素不存在");
+    console.log("  - 首页合集:", mixNumberInput ? mixNumberInput.value : "元素不存在");
+    console.log("  - 设置页面发布作品:", settingsPostNumberInput ? settingsPostNumberInput.value : "元素不存在");
+    console.log("  - 设置页面喜欢作品:", settingsLikeNumberInput ? settingsLikeNumberInput.value : "元素不存在");
+    console.log("  - 设置页面合集:", settingsMixNumberInput ? settingsMixNumberInput.value : "元素不存在");
     
     // 收集设置
     config.path = document.getElementById('downloadPath').value || './Downloaded/';
@@ -350,6 +440,7 @@ function collectCurrentConfig() {
         sid_guard: document.getElementById('sidGuardInput').value
     };
     
+    console.log("✅ 配置收集完成:", config);
     return config;
 }
 
@@ -406,6 +497,7 @@ async function updateDownloadStatus() {
 // 保存配置
 async function saveConfig() {
     try {
+        syncDownloadNumbers(); // 同步设置
         const config = collectCurrentConfig();
         
         const response = await fetch('/api/config', {
@@ -419,10 +511,10 @@ async function saveConfig() {
         const result = await response.json();
         
         if (result.success) {
-            currentConfig = config;
             showToast('配置保存成功', 'success');
+            currentConfig = config;
         } else {
-            showToast(result.message || '配置保存失败', 'error');
+            showToast(result.message || '保存配置失败', 'error');
         }
     } catch (error) {
         console.error('保存配置失败:', error);
@@ -584,3 +676,66 @@ window.addEventListener('beforeunload', function() {
         clearInterval(statusUpdateInterval);
     }
 }); 
+
+// 同步下载数量设置
+function syncDownloadNumbers() {
+    // 从设置页面同步到首页
+    const settingsPost = document.getElementById('settingsPostNumberInput')?.value || 0;
+    const settingsLike = document.getElementById('settingsLikeNumberInput')?.value || 0;
+    const settingsMix = document.getElementById('settingsMixNumberInput')?.value || 0;
+    
+    if (document.getElementById('postNumberInput')) {
+        document.getElementById('postNumberInput').value = settingsPost;
+    }
+    if (document.getElementById('likeNumberInput')) {
+        document.getElementById('likeNumberInput').value = settingsLike;
+    }
+    if (document.getElementById('mixNumberInput')) {
+        document.getElementById('mixNumberInput').value = settingsMix;
+    }
+} 
+
+// 调试函数：检查页面配置读取
+function debugConfigReading() {
+    console.log("🔍 调试配置读取...");
+    
+    // 检查首页下载数量输入框
+    const postNumberInput = document.getElementById('postNumberInput');
+    const likeNumberInput = document.getElementById('likeNumberInput');
+    const mixNumberInput = document.getElementById('mixNumberInput');
+    
+    console.log("首页下载数量输入框:");
+    console.log("  - postNumberInput:", postNumberInput ? postNumberInput.value : "元素不存在");
+    console.log("  - likeNumberInput:", likeNumberInput ? likeNumberInput.value : "元素不存在");
+    console.log("  - mixNumberInput:", mixNumberInput ? mixNumberInput.value : "元素不存在");
+    
+    // 检查设置页面下载数量输入框
+    const settingsPostNumberInput = document.getElementById('settingsPostNumberInput');
+    const settingsLikeNumberInput = document.getElementById('settingsLikeNumberInput');
+    const settingsMixNumberInput = document.getElementById('settingsMixNumberInput');
+    
+    console.log("设置页面下载数量输入框:");
+    console.log("  - settingsPostNumberInput:", settingsPostNumberInput ? settingsPostNumberInput.value : "元素不存在");
+    console.log("  - settingsLikeNumberInput:", settingsLikeNumberInput ? settingsLikeNumberInput.value : "元素不存在");
+    console.log("  - settingsMixNumberInput:", settingsMixNumberInput ? settingsMixNumberInput.value : "元素不存在");
+    
+    // 检查当前配置
+    console.log("当前配置:", currentConfig);
+    
+    // 测试收集配置
+    const collectedConfig = collectCurrentConfig();
+    console.log("收集的配置:", collectedConfig);
+    console.log("收集的下载数量:", collectedConfig.number);
+}
+
+// 在页面加载完成后添加调试按钮（仅在开发模式下）
+if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    document.addEventListener('DOMContentLoaded', function() {
+        // 添加调试按钮到页面
+        const debugBtn = document.createElement('button');
+        debugBtn.textContent = '🔍 调试配置';
+        debugBtn.style.cssText = 'position: fixed; top: 10px; right: 10px; z-index: 9999; padding: 5px 10px; background: #ff6b6b; color: white; border: none; border-radius: 4px; cursor: pointer;';
+        debugBtn.onclick = debugConfigReading;
+        document.body.appendChild(debugBtn);
+    });
+} 
