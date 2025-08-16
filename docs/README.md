@@ -1,6 +1,6 @@
-# 抖音下载器 Web UI
+# DY下载器 Web UI
 
-一个基于 Flask 的抖音下载器 Web 界面，提供图形化界面来管理和下载抖音内容。
+一个基于 Flask 的DY下载器 Web 界面，提供图形化界面来管理和下载DY内容。
 
 ## 项目结构
 
@@ -28,7 +28,7 @@ DYDownload/
 │   └── start_web_ui.bat    # Windows启动脚本
 ├── script/                  # 脚本文件目录
 │   ├── quick_start.py      # 快速启动脚本
-│   └── DouYinCommand.py    # 抖音命令处理脚本
+│   └── DouYinCommand.py    # DY命令处理脚本
 ├── settings/                # 配置和数据库文件目录
 │   ├── config.yml          # 主配置文件
 │   ├── config.yml.backup   # 配置文件备份

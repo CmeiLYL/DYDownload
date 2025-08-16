@@ -26,7 +26,7 @@ DYDownload/
 │   └── start_web_ui.bat    # Windows启动脚本
 ├── script/                  # 脚本文件目录
 │   ├── quick_start.py      # 快速启动脚本
-│   └── DouYinCommand.py    # 抖音命令处理脚本
+│   └── DouYinCommand.py    # DY命令处理脚本
 ├── settings/                # 配置和数据库文件目录
 │   ├── config.yml          # 主配置文件
 │   ├── config.yml.backup   # 配置文件备份
