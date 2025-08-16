@@ -55,7 +55,7 @@ function fileGetFileType(filename) {
     if (['mp4', 'avi', 'mov', 'mkv', 'flv', 'webm'].includes(ext)) return 'video';
     if (['mp3', 'wav', 'aac', 'flac', 'm4a'].includes(ext)) return 'audio';
     if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext)) return 'image';
-    if (['json', 'txt', 'log'].includes(ext)) return 'data';
+    // 移除JSON等数据文件类型，将其归类为other
     return 'other';
 }
 
@@ -116,7 +116,7 @@ function fileUpdateSourceFilter() {
 
 // 筛选文件
 function fileFilterFiles() {
-    const typeFilter = document.getElementById('fileTypeFilter')?.value || 'all';
+    const typeFilter = document.getElementById('typeFilter')?.value || 'all';
     const sourceFilter = document.getElementById('sourceFilter')?.value || 'all';
     const sortFilter = document.getElementById('sortFilter')?.value || 'date-desc';
     const searchInput = document.getElementById('searchInput')?.value?.toLowerCase() || '';
@@ -124,6 +124,11 @@ function fileFilterFiles() {
     console.log('开始筛选文件:', { typeFilter, sourceFilter, sortFilter, searchInput });
     
     fileFilteredFiles = fileAllFiles.filter(file => {
+        // 排除JSON等非目标文件类型
+        if (['json', 'txt', 'log'].includes(fileGetFileExtension(file.name).toLowerCase())) {
+            return false;
+        }
+        
         if (typeFilter !== 'all' && file.fileType !== typeFilter) return false;
         if (sourceFilter !== 'all' && file.source !== sourceFilter) return false;
         if (searchInput && !file.name.toLowerCase().includes(searchInput)) return false;
@@ -152,12 +157,18 @@ function fileSortFiles(sortType) {
 
 // 更新统计信息
 function fileUpdateFileStats() {
+    // 只统计目标文件类型，排除JSON等
+    const targetFiles = fileAllFiles.filter(file => {
+        const ext = fileGetFileExtension(file.name).toLowerCase();
+        return !['json', 'txt', 'log'].includes(ext);
+    });
+    
     const stats = {
-        total: fileAllFiles.length,
-        video: fileAllFiles.filter(f => f.fileType === 'video').length,
-        image: fileAllFiles.filter(f => f.fileType === 'image').length,
-        audio: fileAllFiles.filter(f => f.fileType === 'audio').length,
-        other: fileAllFiles.filter(f => !['video', 'image', 'audio'].includes(f.fileType)).length
+        total: targetFiles.length,
+        video: targetFiles.filter(f => f.fileType === 'video').length,
+        image: targetFiles.filter(f => f.fileType === 'image').length,
+        audio: targetFiles.filter(f => f.fileType === 'audio').length,
+        other: targetFiles.filter(f => !['video', 'image', 'audio'].includes(f.fileType)).length
     };
     
     // 安全地更新统计信息

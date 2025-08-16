@@ -832,11 +832,18 @@ def get_downloaded_files():
             logger.info("下载目录不存在")
             return jsonify([])
         
+        # 定义要排除的文件类型
+        excluded_extensions = {'.json', '.txt', '.log'}
+        
         files = []
         for item in download_path.rglob('*'):
             if item.is_file():
                 # 排除temp文件夹中的文件
                 if 'temp' in item.parts:
+                    continue
+                
+                # 排除JSON等非目标文件类型
+                if item.suffix.lower() in excluded_extensions:
                     continue
                     
                 files.append({
@@ -846,7 +853,7 @@ def get_downloaded_files():
                     'modified': datetime.fromtimestamp(item.stat().st_mtime).isoformat()
                 })
         
-        logger.info(f"获取到 {len(files)} 个文件（已排除temp文件夹）")
+        logger.info(f"获取到 {len(files)} 个文件（已排除temp文件夹和非目标文件类型）")
         return jsonify(files)
     except Exception as e:
         logger.error(f"获取文件列表失败: {e}")
