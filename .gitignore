@@ -161,5 +161,6 @@ cython_debug/
 .idea/
 *.db
 config.yml
+config.yml.backup
 Downloaded
 
