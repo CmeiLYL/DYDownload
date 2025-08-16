@@ -4,6 +4,17 @@ let downloadStatus = { running: false, current_task: null, progress: 0 };
 let statusUpdateInterval = null;
 let linksData = []; // 存储链接和用户信息
 
+// 下载信息相关变量
+let downloadInfo = {
+    downloadedCount: 0,
+    failedCount: 0,
+    remainingCount: 0,
+    downloadSpeed: 0,
+    startTime: null,
+    recentDownloads: [],
+    currentFile: null
+};
+
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
     loadConfig();
@@ -476,6 +487,12 @@ async function updateDownloadStatus() {
         
         if (status.running !== downloadStatus.running) {
             updateDownloadControls(status.running);
+            if (status.running) {
+                showDownloadInfoPanel();
+                downloadInfo.startTime = new Date();
+            } else {
+                hideDownloadInfoPanel();
+            }
         }
         
         downloadStatus = status;
@@ -489,9 +506,201 @@ async function updateDownloadStatus() {
         progressText.textContent = `${status.progress}%`;
         currentTask.textContent = status.current_task || '等待开始...';
         
+        // 更新下载信息面板
+        updateDownloadInfoPanel(status);
+        
     } catch (error) {
         console.error('获取下载状态失败:', error);
     }
+}
+
+// 显示下载信息面板
+function showDownloadInfoPanel() {
+    const panel = document.getElementById('downloadInfoPanel');
+    if (panel) {
+        panel.style.display = 'block';
+        // 重置下载信息
+        downloadInfo = {
+            downloadedCount: 0,
+            failedCount: 0,
+            remainingCount: 0,
+            downloadSpeed: 0,
+            startTime: new Date(),
+            recentDownloads: [],
+            currentFile: null
+        };
+        updateDownloadInfoDisplay();
+    }
+}
+
+// 隐藏下载信息面板
+function hideDownloadInfoPanel() {
+    const panel = document.getElementById('downloadInfoPanel');
+    if (panel) {
+        panel.style.display = 'none';
+    }
+}
+
+// 更新下载信息面板显示
+function updateDownloadInfoPanel(status) {
+    // 解析当前任务信息
+    if (status.current_task) {
+        parseCurrentTask(status.current_task);
+    }
+    
+    // 更新统计信息
+    updateDownloadStats();
+    
+    // 更新速度和时间
+    updateDownloadSpeedAndTime();
+    
+    // 更新显示
+    updateDownloadInfoDisplay();
+}
+
+// 解析当前任务信息
+function parseCurrentTask(taskText) {
+    // 尝试从任务文本中提取文件名和类型
+    const fileNameMatch = taskText.match(/下载[：:]\s*(.+)/);
+    if (fileNameMatch) {
+        downloadInfo.currentFile = {
+            name: fileNameMatch[1],
+            type: getFileType(fileNameMatch[1])
+        };
+    } else {
+        downloadInfo.currentFile = {
+            name: taskText,
+            type: 'unknown'
+        };
+    }
+}
+
+// 获取文件类型
+function getFileType(fileName) {
+    const ext = fileName.split('.').pop().toLowerCase();
+    if (['mp4', 'avi', 'mov', 'mkv'].includes(ext)) return 'video';
+    if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) return 'image';
+    if (['mp3', 'wav', 'aac'].includes(ext)) return 'audio';
+    return 'file';
+}
+
+// 更新下载统计
+function updateDownloadStats() {
+    // 这里可以根据实际下载进度更新统计
+    // 目前使用模拟数据
+    if (downloadStatus.progress > 0) {
+        downloadInfo.downloadedCount = Math.floor(downloadStatus.progress / 10);
+        downloadInfo.failedCount = Math.floor(downloadStatus.progress / 50);
+        downloadInfo.remainingCount = 10 - downloadInfo.downloadedCount;
+    }
+}
+
+// 更新下载速度和时间
+function updateDownloadSpeedAndTime() {
+    if (downloadInfo.startTime && downloadStatus.progress > 0) {
+        const elapsed = (new Date() - downloadInfo.startTime) / 1000; // 秒
+        const progress = downloadStatus.progress / 100;
+        
+        if (progress > 0 && elapsed > 0) {
+            // 模拟下载速度计算
+            downloadInfo.downloadSpeed = Math.floor(Math.random() * 1000 + 500); // KB/s
+            
+            // 计算剩余时间
+            const remainingProgress = 1 - progress;
+            const estimatedTime = remainingProgress * elapsed / progress;
+            downloadInfo.estimatedTime = formatTime(estimatedTime);
+        }
+    }
+}
+
+// 格式化时间
+function formatTime(seconds) {
+    if (seconds < 60) {
+        return `${Math.floor(seconds)}s`;
+    } else if (seconds < 3600) {
+        const minutes = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${minutes}:${secs.toString().padStart(2, '0')}`;
+    } else {
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        return `${hours}:${minutes.toString().padStart(2, '0')}`;
+    }
+}
+
+// 更新下载信息显示
+function updateDownloadInfoDisplay() {
+    // 更新当前下载状态
+    const statusElement = document.getElementById('currentDownloadStatus');
+    const fileNameElement = document.getElementById('currentFileName');
+    const fileTypeElement = document.getElementById('currentFileType');
+    
+    if (downloadStatus.running) {
+        statusElement.textContent = '下载中';
+        statusElement.className = 'badge bg-success';
+    } else {
+        statusElement.textContent = '已停止';
+        statusElement.className = 'badge bg-secondary';
+    }
+    
+    if (downloadInfo.currentFile) {
+        fileNameElement.textContent = downloadInfo.currentFile.name;
+        fileTypeElement.textContent = downloadInfo.currentFile.type.toUpperCase();
+    } else {
+        fileNameElement.textContent = '等待开始...';
+        fileTypeElement.textContent = '-';
+    }
+    
+    // 更新统计
+    document.getElementById('downloadedCount').textContent = downloadInfo.downloadedCount;
+    document.getElementById('failedCount').textContent = downloadInfo.failedCount;
+    document.getElementById('remainingCount').textContent = downloadInfo.remainingCount;
+    
+    // 更新速度和时间
+    document.getElementById('downloadSpeed').textContent = `${downloadInfo.downloadSpeed} KB/s`;
+    document.getElementById('estimatedTime').textContent = downloadInfo.estimatedTime || '--:--';
+    
+    // 更新最近下载列表
+    updateRecentDownloadsList();
+}
+
+// 更新最近下载列表
+function updateRecentDownloadsList() {
+    const listElement = document.getElementById('recentDownloadsList');
+    
+    if (downloadInfo.recentDownloads.length === 0) {
+        listElement.innerHTML = `
+            <div class="text-muted text-center py-2">
+                <small>暂无下载记录</small>
+            </div>
+        `;
+        return;
+    }
+    
+    const recentItems = downloadInfo.recentDownloads.slice(-5).map(item => `
+        <div class="recent-item">
+            <div class="recent-item-name">${item.name}</div>
+            <div class="recent-item-status ${item.status}">${item.status}</div>
+        </div>
+    `).join('');
+    
+    listElement.innerHTML = recentItems;
+}
+
+// 添加下载记录
+function addDownloadRecord(name, status) {
+    downloadInfo.recentDownloads.push({
+        name: name,
+        status: status,
+        time: new Date()
+    });
+    
+    // 保持最近10条记录
+    if (downloadInfo.recentDownloads.length > 10) {
+        downloadInfo.recentDownloads = downloadInfo.recentDownloads.slice(-10);
+    }
+    
+    updateRecentDownloadsList();
 }
 
 // 保存配置
