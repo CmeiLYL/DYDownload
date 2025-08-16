@@ -64,11 +64,6 @@ app = Flask(__name__,
            static_folder='ui/static')
 CORS(app)
 
-# 全局变量
-config_file = "settings/config.yml"
-download_queue = queue.Queue()
-download_status = {"running": False, "current_task": None, "progress": 0}
-
 class ConfigManager:
     """配置管理器"""
     
@@ -142,6 +137,24 @@ class ConfigManager:
             "thread": 5,
             "cookies": {}
         }
+
+# 全局变量
+config_file = "settings/config.yml"
+config_manager = ConfigManager(config_file)
+download_status = {
+    "running": False, 
+    "current_task": None, 
+    "progress": 0,
+    "total_links": 0,
+    "completed_links": 0,
+    "current_link_index": 0,
+    "current_link": None,
+    "downloaded_files": 0,
+    "failed_files": 0,
+    "total_works": 0,
+    "start_time": None,
+    "estimated_time": None
+}
 
 # 视频缩略图管理类
 class VideoThumbnailManager:
@@ -425,9 +438,6 @@ def get_user_info_from_link(link):
             "message": f"获取用户信息失败: {str(e)}"
         }
 
-# 初始化配置管理器
-config_manager = ConfigManager()
-
 @app.route('/')
 def index():
     """首页"""
@@ -477,19 +487,16 @@ def parse_link():
 def start_download():
     """开始下载"""
     try:
-        data = request.get_json()
-        
         if download_status["running"]:
-            logger.warning("已有下载任务正在运行")
-            return jsonify({"success": False, "message": "已有下载任务正在运行"}), 400
+            return jsonify({"success": False, "message": "下载任务已在运行中"}), 400
         
-        logger.info("开始下载任务")
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "message": "无效的请求数据"}), 400
         
-        # 获取配置数据
+        # 收集配置
         config_data = data.get('config', config_manager.config)
         logger.info(f"准备保存配置到YAML文件: {config_manager.config_path}")
-        
-        # 记录配置信息
         logger.info(f"配置内容:")
         logger.info(f"  - 链接数量: {len(config_data.get('link', []))}")
         logger.info(f"  - 下载选项: music={config_data.get('music', False)}, cover={config_data.get('cover', False)}, avatar={config_data.get('avatar', False)}, json={config_data.get('json', True)}")
@@ -498,15 +505,12 @@ def start_download():
         logger.info(f"  - 线程数: {config_data.get('thread', 5)}")
         logger.info(f"  - 下载路径: {config_data.get('path', './Downloaded/')}")
         
-        # 保存配置到YAML文件
         logger.info("正在保存配置到YAML文件...")
         if not config_manager.save_config(config_data):
             logger.error("配置保存失败")
             return jsonify({"success": False, "message": "配置保存失败"}), 500
         
         logger.info("✓ 配置已成功保存到YAML文件")
-        
-        # 验证配置文件是否已更新
         try:
             with open(config_manager.config_path, 'r', encoding='utf-8') as f:
                 saved_config = yaml.safe_load(f)
@@ -515,17 +519,30 @@ def start_download():
             logger.error(f"配置文件验证失败: {e}")
             return jsonify({"success": False, "message": "配置文件验证失败"}), 500
         
-        # 启动下载线程
+        # 重置下载状态
+        links = config_data.get('link', [])
         download_status["running"] = True
         download_status["current_task"] = "准备下载..."
         download_status["progress"] = 0
+        download_status["total_links"] = len(links)
+        download_status["completed_links"] = 0
+        download_status["current_link_index"] = 0
+        download_status["current_link"] = links[0] if links else None
+        download_status["downloaded_files"] = 0
+        download_status["failed_files"] = 0
+        download_status["total_works"] = 0
+        download_status["start_time"] = time.time()
+        download_status["estimated_time"] = None
         
+        logger.info(f"初始化下载状态: 总链接数={len(links)}")
+        
+        # 启动下载线程
         download_thread = threading.Thread(target=run_download, args=(data,))
         download_thread.daemon = True
         download_thread.start()
         
-        logger.info("下载任务已启动")
         return jsonify({"success": True, "message": "配置已保存，下载任务已启动"})
+        
     except Exception as e:
         logger.error(f"启动下载失败: {e}")
         return jsonify({"success": False, "message": f"启动下载失败: {str(e)}"}), 500
@@ -564,6 +581,7 @@ def run_download(data):
         if not links:
             logger.error("没有配置下载链接")
             download_status["current_task"] = "错误：没有配置下载链接"
+            download_status["running"] = False
             return
         
         logger.info(f"开始下载 {len(links)} 个链接")
@@ -589,6 +607,7 @@ def run_download(data):
         except ImportError as e:
             logger.error(f"✗ 导入DouYinCommand模块失败: {e}")
             download_status["current_task"] = "错误：无法导入DouYinCommand模块"
+            download_status["running"] = False
             return
         
         # 更新DouYinCommand的配置
@@ -627,42 +646,182 @@ def run_download(data):
             cookies = config.get('cookies', {})
             if cookies:
                 cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
-                DouYinCommand.configModel["cookie"] = cookie_str
-                logger.info("✓ 已设置Cookie")
+                DouYinCommand.configModel["cookies"] = cookie_str
+            else:
+                DouYinCommand.configModel["cookies"] = ""
             
-            logger.info("✓ 成功更新DouYinCommand配置")
-            logger.info(f"DouYinCommand配置验证:")
-            logger.info(f"  - 下载选项: music={DouYinCommand.configModel['music']}, cover={DouYinCommand.configModel['cover']}, avatar={DouYinCommand.configModel['avatar']}, json={DouYinCommand.configModel['json']}")
-            logger.info(f"  - 下载数量: post={DouYinCommand.configModel['number']['post']}, like={DouYinCommand.configModel['number']['like']}, mix={DouYinCommand.configModel['number']['mix']}")
+            logger.info("✓ DouYinCommand配置更新完成")
             
         except Exception as e:
             logger.error(f"✗ 更新DouYinCommand配置失败: {e}")
             download_status["current_task"] = "错误：配置更新失败"
+            download_status["running"] = False
             return
         
         # 开始下载
+        download_status["current_task"] = "正在启动下载..."
+        download_status["progress"] = 10
+        
         try:
-            download_status["current_task"] = "正在启动下载..."
-            download_status["progress"] = 10
-            logger.info("正在启动DouYinCommand下载...")
+            # 启动状态更新线程
+            status_update_thread = threading.Thread(target=update_download_status_periodically, daemon=True)
+            status_update_thread.start()
             
-            # 调用DouYinCommand的main函数
-            DouYinCommand.main(load_from_file=False)
+            # 直接调用下载逻辑，而不是通过main函数
+            execute_download_logic(DouYinCommand)
             
+            # 下载完成
             download_status["current_task"] = "✓ 下载完成"
             download_status["progress"] = 100
-            logger.info("✓ DouYinCommand下载完成")
+            download_status["completed_links"] = len(links)
+            download_status["running"] = False
+            logger.info("✓ 下载任务完成")
             
         except Exception as e:
-            logger.error(f"✗ DouYinCommand下载失败: {e}")
+            logger.error(f"✗ 下载执行失败: {e}")
             download_status["current_task"] = f"✗ 下载失败: {str(e)}"
-        
+            download_status["running"] = False
+            
     except Exception as e:
-        logger.error(f"✗ 下载过程出错: {e}")
+        logger.error(f"✗ 下载任务失败: {e}")
         download_status["current_task"] = f"✗ 下载失败: {str(e)}"
-    finally:
         download_status["running"] = False
-        logger.info("下载任务结束")
+    finally:
+        # 确保下载状态被重置
+        download_status["running"] = False
+
+def execute_download_logic(douyin_module):
+    """执行下载逻辑"""
+    try:
+        # 验证配置
+        if not douyin_module.validate_config(douyin_module.configModel):
+            raise Exception("配置验证失败")
+
+        if not douyin_module.configModel["link"]:
+            raise Exception("未设置下载链接")
+
+        # Cookie处理
+        if douyin_module.configModel.get("cookies"):
+            from apiproxy.douyin import douyin_headers
+            douyin_headers["Cookie"] = douyin_module.configModel["cookies"]
+
+        # 路径处理
+        douyin_module.configModel["path"] = os.path.abspath(douyin_module.configModel["path"])
+        os.makedirs(douyin_module.configModel["path"], exist_ok=True)
+        logger.info(f"数据保存路径 {douyin_module.configModel['path']}")
+
+        # 记录初始文件数量
+        download_path = Path(douyin_module.configModel["path"]).resolve()
+        initial_file_count = 0
+        if download_path.exists():
+            initial_file_count = count_downloaded_files(download_path)
+        logger.info(f"下载前文件数量: {initial_file_count}")
+
+        # 初始化下载器
+        from apiproxy.douyin.douyin import Douyin
+        from apiproxy.douyin.download import Download
+        
+        dy = Douyin(database=douyin_module.configModel["database"])
+        dl = Download(
+            thread=douyin_module.configModel["thread"],
+            music=douyin_module.configModel["music"],
+            cover=douyin_module.configModel["cover"],
+            avatar=douyin_module.configModel["avatar"],
+            resjson=douyin_module.configModel["json"],
+            folderstyle=douyin_module.configModel["folderstyle"]
+        )
+
+        # 处理每个链接
+        total_links = len(douyin_module.configModel["link"])
+        for i, link in enumerate(douyin_module.configModel["link"]):
+            if not download_status["running"]:
+                break
+                
+            # 更新当前链接信息
+            download_status["current_link_index"] = i
+            download_status["current_link"] = link
+            download_status["current_task"] = f"正在处理链接 {i+1}/{total_links}: {link}"
+            
+            logger.info(f"处理链接 {i+1}/{total_links}: {link}")
+            
+            # 处理单个链接
+            douyin_module.process_link(dy, dl, link)
+            
+            # 更新完成的链接数
+            download_status["completed_links"] = i + 1
+            
+            # 实时更新增量文件数量
+            if download_path.exists():
+                current_file_count = count_downloaded_files(download_path)
+                new_files = current_file_count - initial_file_count
+                download_status["downloaded_files"] = new_files
+                download_status["current_task"] = f"已下载 {new_files} 个文件"
+                logger.info(f"链接 {i+1} 处理完成，新增文件数: {new_files}")
+            
+            # 短暂延迟，让状态更新线程有机会运行
+            time.sleep(0.5)
+
+        # 下载完成后的最终状态更新
+        if download_path.exists():
+            current_file_count = count_downloaded_files(download_path)
+            final_new_files = current_file_count - initial_file_count
+            download_status["downloaded_files"] = final_new_files
+            download_status["current_task"] = f"✓ 下载完成，共下载 {final_new_files} 个文件"
+            logger.info(f"下载完成，最终新增文件数: {final_new_files}")
+
+    except Exception as e:
+        logger.error(f"执行下载逻辑失败: {e}")
+        raise
+
+def update_download_status_periodically():
+    """定期更新下载状态"""
+    try:
+        # 记录初始文件数量
+        initial_file_count = 0
+        download_path = Path(config_manager.config.get('path', './Downloaded/')).resolve()
+        if download_path.exists():
+            initial_file_count = count_downloaded_files(download_path)
+        
+        logger.info(f"初始文件数量: {initial_file_count}")
+        
+        while download_status["running"]:
+            try:
+                # 检查下载目录中的文件数量
+                if download_path.exists():
+                    # 统计当前文件数量
+                    current_file_count = count_downloaded_files(download_path)
+                    
+                    # 计算新增文件数量（增量）
+                    new_files = current_file_count - initial_file_count
+                    
+                    # 更新下载状态 - 只记录新增的文件数量
+                    download_status["downloaded_files"] = new_files
+                    download_status["current_task"] = f"已下载 {new_files} 个文件"
+                    
+                    logger.debug(f"定期更新：当前文件数: {current_file_count}, 初始文件数: {initial_file_count}, 新增文件数: {new_files}")
+                
+                time.sleep(2)  # 每2秒更新一次
+                
+            except Exception as e:
+                logger.error(f"定期状态更新出错: {e}")
+                time.sleep(5)
+                
+    except Exception as e:
+        logger.error(f"启动定期状态更新失败: {e}")
+
+def count_downloaded_files(download_path):
+    """统计下载目录中的文件数量"""
+    try:
+        count = 0
+        for item in download_path.rglob('*'):
+            if item.is_file():
+                # 排除temp文件夹中的文件
+                if 'temp' not in item.parts:
+                    count += 1
+        return count
+    except Exception as e:
+        logger.error(f"统计文件数量失败: {e}")
+        return 0
 
 @app.route('/api/files', methods=['GET'])
 def get_downloaded_files():
@@ -978,7 +1137,7 @@ def serve_video():
         if range_header:
             logger.info("视频API: 处理Range请求")
             byte1, byte2 = 0, None
-            m = re.search('(\d+)-(\d*)', range_header)
+            m = re.search(r'(\d+)-(\d*)', range_header)
             if m:
                 g = m.groups()
                 

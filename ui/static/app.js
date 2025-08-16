@@ -485,26 +485,84 @@ async function updateDownloadStatus() {
         const response = await fetch('/api/download/status');
         const status = await response.json();
         
+        // 检查下载状态是否发生变化
         if (status.running !== downloadStatus.running) {
             updateDownloadControls(status.running);
             if (status.running) {
+                // 开始下载时显示面板并初始化信息
                 showDownloadInfoPanel();
                 downloadInfo.startTime = new Date();
+                // 初始化下载信息
+                downloadInfo.totalLinks = status.total_links || 0;
+                downloadInfo.completedLinks = status.completed_links || 0;
+                downloadInfo.currentLinkIndex = status.current_link_index || 0;
+                downloadInfo.currentLink = status.current_link || null;
+                downloadInfo.totalWorks = status.total_works || 0;
+                // 重置下载统计
+                downloadInfo.downloadedCount = 0;
+                downloadInfo.failedCount = 0;
+                downloadInfo.downloadSpeed = 0;
+                downloadInfo.estimatedTime = '--:--';
             } else {
+                // 下载停止时隐藏面板
                 hideDownloadInfoPanel();
+                // 重置下载信息
+                downloadInfo = {
+                    downloadedCount: 0,
+                    failedCount: 0,
+                    remainingCount: 0,
+                    downloadSpeed: 0,
+                    startTime: null,
+                    recentDownloads: [],
+                    currentFile: null
+                };
             }
         }
         
         downloadStatus = status;
+        
+        // 更新进度条 - 基于文件数量或链接进度
+        let progressPercent = 0;
+        const downloaded_files = status.downloaded_files || 0;
+        const total_links = status.total_links || 0;
+        const completed_links = status.completed_links || 0;
+        
+        if (downloaded_files > 0) {
+            // 如果有文件数量，显示文件进度
+            // 假设每个链接平均下载10个文件作为进度参考
+            const estimated_files_per_link = 10;
+            const estimated_total_files = total_links * estimated_files_per_link;
+            progressPercent = Math.min(100, Math.round((downloaded_files / estimated_total_files) * 100));
+        } else if (total_links > 0) {
+            // 如果没有文件，使用链接进度
+            progressPercent = Math.round((completed_links / total_links) * 100);
+        }
+        
+        // 如果下载完成，进度条显示100%
+        if (!status.running && completed_links >= total_links && total_links > 0) {
+            progressPercent = 100;
+        }
         
         // 更新进度条
         const progressBar = document.getElementById('progressBar');
         const progressText = document.getElementById('progressText');
         const currentTask = document.getElementById('currentTask');
         
-        progressBar.style.width = `${status.progress}%`;
-        progressText.textContent = `${status.progress}%`;
-        currentTask.textContent = status.current_task || '等待开始...';
+        if (progressBar && progressText && currentTask) {
+            progressBar.style.width = `${progressPercent}%`;
+            progressText.textContent = `${progressPercent}%`;
+            
+            // 更新当前任务信息
+            let taskText = status.current_task || '等待开始...';
+            if (downloaded_files > 0) {
+                // 显示文件数量
+                taskText = `已下载 ${downloaded_files} 个文件`;
+            } else if (total_links > 0) {
+                // 显示链接进度
+                taskText = `链接 ${status.current_link_index + 1}/${total_links}: ${taskText}`;
+            }
+            currentTask.textContent = taskText;
+        }
         
         // 更新下载信息面板
         updateDownloadInfoPanel(status);
@@ -529,7 +587,7 @@ function showDownloadInfoPanel() {
             recentDownloads: [],
             currentFile: null
         };
-        updateDownloadInfoDisplay();
+        // 不在这里调用updateDownloadInfoDisplay，等待状态更新
     }
 }
 
@@ -549,13 +607,13 @@ function updateDownloadInfoPanel(status) {
     }
     
     // 更新统计信息
-    updateDownloadStats();
+    updateDownloadStats(status);
     
     // 更新速度和时间
-    updateDownloadSpeedAndTime();
+    updateDownloadSpeedAndTime(status);
     
     // 更新显示
-    updateDownloadInfoDisplay();
+    updateDownloadInfoDisplay(status);
 }
 
 // 解析当前任务信息
@@ -585,30 +643,42 @@ function getFileType(fileName) {
 }
 
 // 更新下载统计
-function updateDownloadStats() {
-    // 这里可以根据实际下载进度更新统计
-    // 目前使用模拟数据
-    if (downloadStatus.progress > 0) {
-        downloadInfo.downloadedCount = Math.floor(downloadStatus.progress / 10);
-        downloadInfo.failedCount = Math.floor(downloadStatus.progress / 50);
-        downloadInfo.remainingCount = 10 - downloadInfo.downloadedCount;
+function updateDownloadStats(status) {
+    // 使用真实的下载状态信息
+    downloadInfo.downloadedCount = status.downloaded_files || 0;
+    downloadInfo.failedCount = status.failed_files || 0;
+    downloadInfo.completedLinks = status.completed_links || 0;
+    downloadInfo.totalLinks = status.total_links || 0;
+    downloadInfo.currentLinkIndex = status.current_link_index || 0;
+    downloadInfo.currentLink = status.current_link || null;
+    downloadInfo.totalWorks = status.total_works || 0;
+    
+    // 计算剩余数量
+    if (downloadInfo.totalWorks > 0) {
+        // 如果有作品数量信息，按作品计算
+        downloadInfo.remainingCount = Math.max(0, downloadInfo.totalWorks - downloadInfo.downloadedCount);
+    } else {
+        // 否则按链接计算
+        downloadInfo.remainingCount = Math.max(0, downloadInfo.totalLinks - downloadInfo.completedLinks);
     }
 }
 
 // 更新下载速度和时间
-function updateDownloadSpeedAndTime() {
-    if (downloadInfo.startTime && downloadStatus.progress > 0) {
+function updateDownloadSpeedAndTime(status) {
+    if (downloadInfo.startTime && status.start_time) {
         const elapsed = (new Date() - downloadInfo.startTime) / 1000; // 秒
-        const progress = downloadStatus.progress / 100;
+        const downloaded_files = status.downloaded_files || 0;
         
-        if (progress > 0 && elapsed > 0) {
-            // 模拟下载速度计算
-            downloadInfo.downloadSpeed = Math.floor(Math.random() * 1000 + 500); // KB/s
+        if (downloaded_files > 0 && elapsed > 0) {
+            // 计算下载速度（基于文件数量）
+            const filesPerSecond = downloaded_files / elapsed;
+            downloadInfo.downloadSpeed = Math.round(filesPerSecond * 100) / 100; // 文件/秒
             
-            // 计算剩余时间
-            const remainingProgress = 1 - progress;
-            const estimatedTime = remainingProgress * elapsed / progress;
-            downloadInfo.estimatedTime = formatTime(estimatedTime);
+            // 由于不知道总数，无法计算剩余时间
+            downloadInfo.estimatedTime = '--:--';
+        } else {
+            downloadInfo.downloadSpeed = 0;
+            downloadInfo.estimatedTime = '--:--';
         }
     }
 }
@@ -629,13 +699,19 @@ function formatTime(seconds) {
 }
 
 // 更新下载信息显示
-function updateDownloadInfoDisplay() {
+function updateDownloadInfoDisplay(status) {
+    // 检查status参数是否存在
+    if (!status) {
+        console.warn('updateDownloadInfoDisplay: status参数为空');
+        return;
+    }
+    
     // 更新当前下载状态
     const statusElement = document.getElementById('currentDownloadStatus');
     const fileNameElement = document.getElementById('currentFileName');
     const fileTypeElement = document.getElementById('currentFileType');
     
-    if (downloadStatus.running) {
+    if (status.running) {
         statusElement.textContent = '下载中';
         statusElement.className = 'badge bg-success';
     } else {
@@ -643,21 +719,33 @@ function updateDownloadInfoDisplay() {
         statusElement.className = 'badge bg-secondary';
     }
     
-    if (downloadInfo.currentFile) {
-        fileNameElement.textContent = downloadInfo.currentFile.name;
-        fileTypeElement.textContent = downloadInfo.currentFile.type.toUpperCase();
+    // 显示当前下载信息
+    if (status.downloaded_files > 0) {
+        // 如果有文件数量信息，显示文件信息
+        fileNameElement.textContent = `已下载 ${status.downloaded_files} 个文件`;
+        fileTypeElement.textContent = '抖音文件';
+    } else if (status.current_link) {
+        // 显示当前链接信息
+        fileNameElement.textContent = status.current_link;
+        fileTypeElement.textContent = '抖音链接';
+    } else if (status.total_links > 0) {
+        fileNameElement.textContent = `链接 ${status.current_link_index + 1}/${status.total_links}`;
+        fileTypeElement.textContent = '等待开始...';
     } else {
         fileNameElement.textContent = '等待开始...';
         fileTypeElement.textContent = '-';
     }
     
     // 更新统计
-    document.getElementById('downloadedCount').textContent = downloadInfo.downloadedCount;
-    document.getElementById('failedCount').textContent = downloadInfo.failedCount;
-    document.getElementById('remainingCount').textContent = downloadInfo.remainingCount;
+    document.getElementById('downloadedCount').textContent = status.downloaded_files || 0;
+    document.getElementById('failedCount').textContent = status.failed_files || 0;
+    
+    // 剩余数量显示为"-"，因为我们不知道总数
+    document.getElementById('remainingCount').textContent = '-';
     
     // 更新速度和时间
-    document.getElementById('downloadSpeed').textContent = `${downloadInfo.downloadSpeed} KB/s`;
+    const speedUnit = '文件/秒';
+    document.getElementById('downloadSpeed').textContent = `${downloadInfo.downloadSpeed} ${speedUnit}`;
     document.getElementById('estimatedTime').textContent = downloadInfo.estimatedTime || '--:--';
     
     // 更新最近下载列表
